@@ -16,6 +16,7 @@ exclude (
 )
 
 require (
+	// dummy changes
 	github.com/NYTimes/gziphandler v1.0.1
 	github.com/aliyun/alibaba-cloud-sdk-go v1.62.156
 	github.com/armon/circbuf v0.0.0-20150827004946-bbbad097214e
