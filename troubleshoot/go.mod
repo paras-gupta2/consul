@@ -27,7 +27,7 @@ require (
 	github.com/envoyproxy/go-control-plane/ratelimit v0.1.0
 	github.com/envoyproxy/go-control-plane/xdsmatcher v0.13.4
 	github.com/hashicorp/consul/api v1.34.5
-	github.com/hashicorp/consul/envoyextensions v0.10.5
+	github.com/hashicorp/consul/envoyextensions v0.10.6
 	github.com/hashicorp/consul/sdk v0.18.2
 	github.com/stretchr/testify v1.10.0
 	google.golang.org/protobuf v1.36.4
