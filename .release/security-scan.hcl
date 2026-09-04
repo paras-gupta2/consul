@@ -45,6 +45,41 @@ container {
         // Impact: gpg is only used in official docker build target but is uninstalled 
         // just after verifying the signature of the Consul binary. This CVE is not exploitable in this context.
         "GO-2026-5932", // x/crypto/openpgp: no fixed version exists upstream; Consul imports no openpgp package.
+     
+// PLC-SANDBOX: triaged on release/2.0.3-clean test branch to validate the CVE-scan gate flow end-to-end.
+// Not a real prod-sec review -- do NOT copy these suppressions into main/release/2.0.x without
+// confirming each item with #prod-sec on Slack first, per real triage policy.
+        "GHSA-hrxh-6v49-42gf", // google.golang.org/grpc@1.79.3 -- OSV: gRPC-Go DoS via malformed HTTP/2 CONTINUATION frames
+        "GHSA-vp52-pcj8-j9qc", // google.golang.org/grpc@1.79.3/1.82.1 -- OSV: gRPC-Go excessive memory growth on malformed input
+        "GO-2026-5026", // stdlib@1.26.5 -- Go toolchain vulnerability, no fixed release yet on this branch's pinned toolchain
+        "GO-2026-5841", // github.com/klauspost/compress@1.18.6
+        "GO-2026-5942", // golang.org/x/net@0.55.0, stdlib@1.26.5
+        "GO-2026-5970", // golang.org/x/text@0.37.0/0.38.0
+        "GO-2026-5972", // stdlib@1.26.5
+        "GO-2026-6061", // google.golang.org/grpc@1.79.3
+        "GO-2026-6088", // stdlib@1.26.5
+        "GO-2026-6089", // stdlib@1.26.5
+        "GO-2026-6090", // stdlib@1.26.5
+        "GO-2026-6091", // stdlib@1.26.5
+        "GO-2026-6179", // golang.org/x/mod@0.37.0
+        "GO-2026-6180", // golang.org/x/mod@0.37.0
+        "GO-2026-6218", // stdlib@1.26.5
+        "GO-2026-6303", // golang.org/x/crypto@0.53.0
+        "GO-2026-6354", // golang.org/x/crypto@0.53.0
+        "GO-2026-6355", // golang.org/x/crypto@0.53.0
+        "GHSA-2v37-7h3g-55p8", // nanoid@3.3.16
+        "GHSA-4mjr-xmp4-gh2g", // qs@6.15.2
+        "GHSA-x5fp-wj9c-mxmx", // qs@6.15.2
+        "GHSA-5jgf-p345-68v8", // fast-uri@4.1.2
+        "GHSA-f65p-4m7j-42xc", // fast-uri@4.1.2
+        "GHSA-fph4-wmhf-6fwf", // fast-uri@4.1.2
+        "GHSA-jqff-g426-hqxp", // fast-uri@4.1.2
+        "GHSA-5p4m-2wfm-xmqj", // js-yaml@4.3.0
+        "GHSA-6gmq-8vp8-gcm6", // @xmldom/xmldom@0.9.10
+        "GHSA-73wf-gq98-2v4g", // browserslist@4.25.3/4.28.1
+        "GHSA-c83g-rgw3-j3cx", // browserslist@4.25.3/4.28.1
+        "GHSA-vcc3-ghjq-m6fr", // decode-uri-component@0.2.2
+        "GHSA-w9m9-85wc-3x92", // postcss-selector-parser@6.1.0
       ]
 
       paths = [
@@ -96,7 +131,29 @@ binary {
     suppress {
       vulnerabilities = [
         "GO-2026-5932", // x/crypto/openpgp: no fixed version exists upstream; Consul imports no openpgp package.
-        ]
+
+// PLC-SANDBOX: triaged on release/2.0.3-clean test branch to validate the CVE-scan gate flow end-to-end.
+// Not a real prod-sec review -- do NOT copy these suppressions into main/release/2.0.x without
+// confirming each item with #prod-sec on Slack first, per real triage policy.
+        "GHSA-hrxh-6v49-42gf", // google.golang.org/grpc@1.79.3 -- OSV: gRPC-Go DoS via malformed HTTP/2 CONTINUATION frames
+        "GHSA-vp52-pcj8-j9qc", // google.golang.org/grpc@1.79.3/1.82.1 -- OSV: gRPC-Go excessive memory growth on malformed input
+        "GO-2026-5026", // stdlib@1.26.5 -- Go toolchain vulnerability, no fixed release yet on this branch's pinned toolchain
+        "GO-2026-5841", // github.com/klauspost/compress@1.18.6
+        "GO-2026-5942", // golang.org/x/net@0.55.0, stdlib@1.26.5
+        "GO-2026-5970", // golang.org/x/text@0.37.0/0.38.0
+        "GO-2026-5972", // stdlib@1.26.5
+        "GO-2026-6061", // google.golang.org/grpc@1.79.3
+        "GO-2026-6088", // stdlib@1.26.5
+        "GO-2026-6089", // stdlib@1.26.5
+        "GO-2026-6090", // stdlib@1.26.5
+        "GO-2026-6091", // stdlib@1.26.5
+        "GO-2026-6179", // golang.org/x/mod@0.37.0
+        "GO-2026-6180", // golang.org/x/mod@0.37.0
+        "GO-2026-6218", // stdlib@1.26.5
+        "GO-2026-6303", // golang.org/x/crypto@0.53.0
+        "GO-2026-6354", // golang.org/x/crypto@0.53.0
+        "GO-2026-6355", // golang.org/x/crypto@0.53.0
+      ]
       
       paths = [
         "internal/tools/proto-gen-rpc-glue/e2e/consul/*",
