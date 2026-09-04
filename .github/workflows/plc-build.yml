@@ -24,4 +24,5 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Build gate
-        run: echo "PLC build gate: ok (commit ${GITHUB_SHA})"
+        run: |
+          echo "PLC build gate ok - commit ${GITHUB_SHA}"
