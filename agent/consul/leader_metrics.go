@@ -1,4 +1,4 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2024, 2026
 // SPDX-License-Identifier: BUSL-1.1
 
 package consul
@@ -11,8 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/armon/go-metrics"
-	"github.com/armon/go-metrics/prometheus"
+	"github.com/hashicorp/go-metrics"
+	"github.com/hashicorp/go-metrics/prometheus"
+
 	"github.com/hashicorp/go-hclog"
 
 	"github.com/hashicorp/consul/agent/connect"
@@ -22,6 +23,14 @@ import (
 var (
 	metricsKeyMeshRootCAExpiry          = []string{"mesh", "active-root-ca", "expiry"}
 	metricsKeyMeshActiveSigningCAExpiry = []string{"mesh", "active-signing-ca", "expiry"}
+
+	// TestCertExpirationMonitorInterval overrides the default emission cadence in tests.
+	TestCertExpirationMonitorInterval time.Duration
+
+	// certExpirationMonitorRetryInterval is used when metric emission fails (for example
+	// when cert state is not yet initialized during startup). In that case we retry faster
+	// than the normal hourly interval.
+	certExpirationMonitorRetryInterval = 10 * time.Second
 )
 
 var LeaderCertExpirationGauges = []prometheus.GaugeDefinition{
@@ -37,11 +46,14 @@ var LeaderCertExpirationGauges = []prometheus.GaugeDefinition{
 
 func rootCAExpiryMonitor(s *Server) CertExpirationMonitor {
 	return CertExpirationMonitor{
-		Key:    metricsKeyMeshRootCAExpiry,
-		Logger: s.logger.Named(logging.Connect),
+		Key:      metricsKeyMeshRootCAExpiry,
+		Labels:   []metrics.Label{{Name: "datacenter", Value: s.config.Datacenter}},
+		Logger:   s.logger.Named(logging.Connect),
+		Interval: TestCertExpirationMonitorInterval,
 		Query: func() (time.Duration, time.Duration, error) {
 			return getRootCAExpiry(s)
 		},
+		Server: s,
 	}
 }
 
@@ -61,14 +73,17 @@ func getRootCAExpiry(s *Server) (time.Duration, time.Duration, error) {
 
 func signingCAExpiryMonitor(s *Server) CertExpirationMonitor {
 	return CertExpirationMonitor{
-		Key:    metricsKeyMeshActiveSigningCAExpiry,
-		Logger: s.logger.Named(logging.Connect),
+		Key:      metricsKeyMeshActiveSigningCAExpiry,
+		Labels:   []metrics.Label{{Name: "datacenter", Value: s.config.Datacenter}},
+		Logger:   s.logger.Named(logging.Connect),
+		Interval: TestCertExpirationMonitorInterval,
 		Query: func() (time.Duration, time.Duration, error) {
 			if s.caManager.isIntermediateUsedToSignLeaf() {
 				return getActiveIntermediateExpiry(s)
 			}
 			return getRootCAExpiry(s)
 		},
+		Server: s,
 	}
 }
 
@@ -108,55 +123,143 @@ type CertExpirationMonitor struct {
 	// lifespan of the certificate (NotBefore -> NotAfter) and the duration
 	// until the certificate expires (Now -> NotAfter), or an error if the
 	// query failed.
-	Query func() (time.Duration, time.Duration, error)
+	Query  func() (time.Duration, time.Duration, error)
+	Server *Server
+
+	// Optional threshold overrides (used when Server is nil, e.g., for agent TLS)
+	CriticalThresholdDays int
+	WarningThresholdDays  int
+
+	// Interval overrides the default emission cadence. This is intended for tests.
+	Interval time.Duration
 }
 
 const certExpirationMonitorInterval = time.Hour
 
+func certDaysRemaining(untilAfter time.Duration) int {
+	return int(math.Floor(untilAfter.Hours() / 24))
+}
+
+func certLogSeverity(untilAfter time.Duration, criticalDays, warningDays int) string {
+	if untilAfter <= 0 {
+		return "expired"
+	}
+
+	criticalThreshold := time.Duration(criticalDays) * 24 * time.Hour
+	warningThreshold := time.Duration(warningDays) * 24 * time.Hour
+	switch {
+	case untilAfter <= criticalThreshold:
+		return "critical"
+	case untilAfter <= warningThreshold:
+		return "warning"
+	default:
+		return "ok"
+	}
+}
+
 func (m CertExpirationMonitor) Monitor(ctx context.Context) error {
-	ticker := time.NewTicker(certExpirationMonitorInterval)
-	defer ticker.Stop()
+
+	// Check if certificate telemetry is enabled (only for server-based monitors)
+	if m.Server != nil && !m.Server.config.CertificateTelemetryEnabled {
+		return nil
+	}
+
+	interval := certExpirationMonitorInterval
+	if m.Interval > 0 {
+		interval = m.Interval
+	}
+	retryInterval := certExpirationMonitorRetryInterval
+	if interval < retryInterval {
+		retryInterval = interval
+	}
 
 	logger := m.Logger.With("metric", strings.Join(m.Key, "."))
 
-	emitMetric := func() {
-		lifetime, untilAfter, err := m.Query()
+	emitMetric := func() bool {
+		_, untilAfter, err := m.Query()
 		if err != nil {
 			logger.Warn("failed to emit certificate expiry metric", "error", err)
-			return
+			metrics.SetGaugeWithLabels(m.Key, float32(math.NaN()), m.Labels)
+			return false
 		}
 
-		if expiresSoon(lifetime, untilAfter) {
-			key := strings.Join(m.Key, ":")
-			switch key {
-			case "mesh:active-root-ca:expiry":
-				logger.Warn("root certificate will expire soon",
-					"time_to_expiry", untilAfter,
-					"expiration", time.Now().Add(untilAfter),
-					"suggested_action", "manually rotate the root certificate",
-				)
-			case "mesh:active-signing-ca:expiry":
-				logger.Warn("signing (intermediate) certificate will expire soon",
-					"time_to_expiry", untilAfter,
-					"expiration", time.Now().Add(untilAfter),
-					"suggested_action", "check consul logs for rotation issues",
-				)
-			case "agent:tls:cert:expiry":
-				logger.Warn("agent TLS certificate will expire soon",
-					"time_to_expiry", untilAfter,
-					"expiration", time.Now().Add(untilAfter),
-					"suggested_action", "manually rotate this agent's certificate",
-				)
+		daysRemaining := certDaysRemaining(untilAfter)
+
+		// Get thresholds from Server config or use provided values
+		var criticalDays, warningDays int
+		if m.Server != nil {
+			criticalDays = m.Server.config.CertificateTelemetryCriticalThresholdDays
+			warningDays = m.Server.config.CertificateTelemetryWarningThresholdDays
+		} else {
+			criticalDays = m.CriticalThresholdDays
+			warningDays = m.WarningThresholdDays
+		}
+
+		// Determine cert type and suggested action for logging
+		key := strings.Join(m.Key, ":")
+		var certType string
+		var suggestedAction string
+		var nodeName string
+
+		switch key {
+		case "mesh:active-root-ca:expiry":
+			certType = "Root"
+			suggestedAction = "manually rotate the root certificate"
+		case "mesh:active-signing-ca:expiry":
+			certType = "Intermediate"
+			suggestedAction = "check consul logs for rotation issues"
+		case "agent:tls:cert:expiry":
+			certType = "Agent"
+			// Try to extract node name from labels if available
+			for _, label := range m.Labels {
+				if label.Name == "node" {
+					nodeName = label.Value
+					break
+				}
 			}
+			if nodeName != "" {
+				suggestedAction = fmt.Sprintf("manually rotate this agent's certificate on node %s", nodeName)
+			} else {
+				suggestedAction = "manually rotate this agent's certificate"
+			}
+		}
+
+		// Build log fields
+		logFields := []interface{}{
+			"cert_type", certType,
+			"days_remaining", daysRemaining,
+			"time_to_expiry", untilAfter,
+			"expiration", time.Now().Add(untilAfter),
+			"suggested_action", suggestedAction,
+		}
+		if nodeName != "" {
+			logFields = append(logFields, "node", nodeName)
+		}
+
+		// Log based on threshold severity with detailed context
+		switch certLogSeverity(untilAfter, criticalDays, warningDays) {
+		case "expired":
+			logger.Error("certificate has expired", logFields...)
+		case "critical":
+			logger.Error("certificate expiring soon", logFields...)
+		case "warning":
+			logger.Warn("certificate expiring soon", logFields...)
 		}
 
 		expiry := untilAfter / time.Second
 		metrics.SetGaugeWithLabels(m.Key, float32(expiry), m.Labels)
+		return true
 	}
 
 	// emit the metric immediately so that if a cert was just updated the
 	// new metric will be updated to the new expiration time.
-	emitMetric()
+	nextInterval := interval
+	if !emitMetric() {
+		nextInterval = retryInterval
+	}
+
+	timer := time.NewTimer(nextInterval)
+	defer timer.Stop()
 
 	for {
 		select {
@@ -165,8 +268,12 @@ func (m CertExpirationMonitor) Monitor(ctx context.Context) error {
 			// metric from a non-leader, it does not get a stale value.
 			metrics.SetGaugeWithLabels(m.Key, float32(math.NaN()), m.Labels)
 			return nil
-		case <-ticker.C:
-			emitMetric()
+		case <-timer.C:
+			nextInterval = interval
+			if !emitMetric() {
+				nextInterval = retryInterval
+			}
+			timer.Reset(nextInterval)
 		}
 	}
 }
@@ -178,20 +285,4 @@ func initLeaderMetrics() {
 	for _, g := range LeaderCertExpirationGauges {
 		metrics.SetGaugeWithLabels(g.Name, float32(math.NaN()), g.ConstLabels)
 	}
-}
-
-// expiresSoon checks to see if we are close enough to the cert expiring that
-// we should send out a WARN log message.
-// It returns true if the cert will expire within 28 days or 40% of the
-// certificate's total duration (whichever is shorter).
-func expiresSoon(lifetime, untilAfter time.Duration) bool {
-	defaultPeriod := 28 * (24 * time.Hour) // 28 days
-	fortyPercent := (lifetime / 10) * 4    // 40% of total duration
-
-	warningPeriod := defaultPeriod
-	if fortyPercent < defaultPeriod {
-		warningPeriod = fortyPercent
-	}
-
-	return untilAfter < warningPeriod
 }

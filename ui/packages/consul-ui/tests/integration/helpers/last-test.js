@@ -1,5 +1,5 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
@@ -15,8 +15,8 @@ module('Integration | Helper | last', function (hooks) {
   test('it renders', async function (assert) {
     this.set('inputValue', 'get-the-last-character/');
 
-    await render(hbs`{{last inputValue}}`);
+    await render(hbs`{{last this.inputValue}}`);
 
-    assert.equal(this.element.textContent.trim(), '/');
+    assert.strictEqual(this.element.textContent.trim(), '/');
   });
 });

@@ -1,5 +1,5 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
@@ -19,10 +19,9 @@ module('Integration | Adapter | binding-rule', function (hooks) {
     const actual = adapter.requestForQuery(request, {
       dc: dc,
     });
-    assert.equal(`${actual.method} ${actual.url}`, expected);
+    assert.strictEqual(`${actual.method} ${actual.url}`, expected);
   });
   test('requestForQuery returns the correct body', function (assert) {
-    assert.expect(2);
     return nspaceRunner(
       (adapter, serializer, client) => {
         const request = client.body.bind(client);

@@ -1,10 +1,9 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2024, 2026
 // SPDX-License-Identifier: BUSL-1.1
 
 package config
 
 import (
-	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -21,7 +20,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/armon/go-metrics/prometheus"
+	"github.com/hashicorp/go-metrics/prometheus"
 	"golang.org/x/time/rate"
 
 	"github.com/hashicorp/go-bexpr"
@@ -36,7 +35,7 @@ import (
 	"github.com/hashicorp/consul/agent/consul"
 	"github.com/hashicorp/consul/agent/consul/authmethod/ssoauth"
 	consulrate "github.com/hashicorp/consul/agent/consul/rate"
-	hcpconfig "github.com/hashicorp/consul/agent/hcp/config"
+	"github.com/hashicorp/consul/agent/consul/state"
 	"github.com/hashicorp/consul/agent/rpc/middleware"
 	"github.com/hashicorp/consul/agent/structs"
 	"github.com/hashicorp/consul/agent/token"
@@ -323,6 +322,54 @@ func (a byName) Len() int { return len(a) }
 func (a byName) Swap(i, j int) { a[i], a[j] = a[j], a[i] }
 
 func (a byName) Less(i, j int) bool { return a[i].Name() < a[j].Name() }
+
+// getCertificateEnabled returns the certificate telemetry enabled flag with default true
+func (b *builder) getCertificateEnabled(cert *CertificateTelemetry) bool {
+	if cert == nil {
+		return true
+	}
+	return boolValWithDefault(cert.Enabled, true)
+}
+
+// getCertificateCacheDuration returns the certificate telemetry cache duration with default 5m
+func (b *builder) getCertificateCacheDuration(cert *CertificateTelemetry) time.Duration {
+	if cert == nil {
+		return 5 * time.Minute
+	}
+	return b.durationValWithDefault("telemetry.certificate.cache_duration", cert.CacheDuration, 5*time.Minute)
+}
+
+// getCertificateCriticalThresholdDays returns the certificate critical threshold with default 7
+func (b *builder) getCertificateCriticalThresholdDays(cert *CertificateTelemetry) int {
+	if cert == nil {
+		return 7
+	}
+	return intValWithDefault(cert.CriticalThresholdDays, 7)
+}
+
+// getCertificateWarningThresholdDays returns the certificate warning threshold with default 30
+func (b *builder) getCertificateWarningThresholdDays(cert *CertificateTelemetry) int {
+	if cert == nil {
+		return 30
+	}
+	return intValWithDefault(cert.WarningThresholdDays, 30)
+}
+
+// getCertificateInfoThresholdDays returns the certificate info threshold with default 90
+func (b *builder) getCertificateInfoThresholdDays(cert *CertificateTelemetry) int {
+	if cert == nil {
+		return 90
+	}
+	return intValWithDefault(cert.InfoThresholdDays, 90)
+}
+
+// getCertificateExcludeAutoRenewable returns the certificate exclude auto-renewable flag with default false
+func (b *builder) getCertificateExcludeAutoRenewable(cert *CertificateTelemetry) bool {
+	if cert == nil {
+		return false
+	}
+	return boolValWithDefault(cert.ExcludeAutoRenewable, false)
+}
 
 // build constructs the runtime configuration from the config sources
 // and the command line flags. The config sources are processed in the
@@ -691,6 +738,17 @@ func (b *builder) build() (rt RuntimeConfig, err error) {
 	connectEnabled := boolVal(c.Connect.Enabled)
 	connectCAProvider := stringVal(c.Connect.CAProvider)
 	connectCAConfig := c.Connect.CAConfig
+	connectVirtualIPCIDRv4 := state.DefaultVirtualIPv4CIDR
+	if cidr := stringVal(c.Connect.VirtualIPCIDRv4); cidr != "" {
+		connectVirtualIPCIDRv4 = cidr
+	}
+	connectVirtualIPCIDRv6 := state.DefaultVirtualIPv6CIDR
+	if cidr := stringVal(c.Connect.VirtualIPCIDRv6); cidr != "" {
+		connectVirtualIPCIDRv6 = cidr
+	}
+	if err := state.ValidateVirtualIPCIDRs(connectVirtualIPCIDRv4, connectVirtualIPCIDRv6); err != nil {
+		return RuntimeConfig{}, err
+	}
 
 	// autoEncrypt and autoConfig implicitly turns on connect which is why
 	// they need to be above other settings that rely on connect.
@@ -822,6 +880,8 @@ func (b *builder) build() (rt RuntimeConfig, err error) {
 	// build runtime config
 	//
 	dataDir := stringVal(c.DataDir)
+	tokenDirs := stringVal(c.TokenDirs)
+
 	rt = RuntimeConfig{
 		// non-user configurable values
 		AEInterval:                 b.durationVal("ae_interval", c.AEInterval),
@@ -839,13 +899,14 @@ func (b *builder) build() (rt RuntimeConfig, err error) {
 		BuildDate: timeValWithDefault(c.BuildDate, time.Date(1970, 1, 00, 00, 00, 01, 0, time.UTC)),
 
 		// consul configuration
-		ConsulCoordinateUpdateBatchSize:  intVal(c.Consul.Coordinate.UpdateBatchSize),
-		ConsulCoordinateUpdateMaxBatches: intVal(c.Consul.Coordinate.UpdateMaxBatches),
-		ConsulCoordinateUpdatePeriod:     b.durationVal("consul.coordinate.update_period", c.Consul.Coordinate.UpdatePeriod),
-		ConsulRaftElectionTimeout:        consulRaftElectionTimeout,
-		ConsulRaftHeartbeatTimeout:       consulRaftHeartbeatTimeout,
-		ConsulRaftLeaderLeaseTimeout:     consulRaftLeaderLeaseTimeout,
-		ConsulServerHealthInterval:       b.durationVal("consul.server.health_interval", c.Consul.Server.HealthInterval),
+		ConsulCoordinateUpdateBatchSize:        intVal(c.Consul.Coordinate.UpdateBatchSize),
+		ConsulCoordinateUpdateMaxBatches:       intVal(c.Consul.Coordinate.UpdateMaxBatches),
+		ConsulCoordinateUpdatePeriod:           b.durationVal("consul.coordinate.update_period", c.Consul.Coordinate.UpdatePeriod),
+		ConsulRaftElectionTimeout:              consulRaftElectionTimeout,
+		ConsulRaftHeartbeatTimeout:             consulRaftHeartbeatTimeout,
+		ConsulRaftLeaderLeaseTimeout:           consulRaftLeaderLeaseTimeout,
+		ConsulServerHealthInterval:             b.durationVal("consul.server.health_interval", c.Consul.Server.HealthInterval),
+		FederationStateAntiEntropySyncInterval: b.durationVal("federation_state_anti_entropy_sync_interval", c.FederationStateAntiEntropySyncInterval),
 
 		// gossip configuration
 		GossipLANGossipInterval: b.durationVal("gossip_lan..gossip_interval", c.GossipLAN.GossipInterval),
@@ -924,15 +985,19 @@ func (b *builder) build() (rt RuntimeConfig, err error) {
 		DNSCacheMaxAge:        b.durationVal("dns_config.cache_max_age", c.DNS.CacheMaxAge),
 
 		// HTTP
-		HTTPPort:            httpPort,
-		HTTPSPort:           httpsPort,
-		HTTPAddrs:           httpAddrs,
-		HTTPSAddrs:          httpsAddrs,
-		HTTPBlockEndpoints:  c.HTTPConfig.BlockEndpoints,
-		HTTPMaxHeaderBytes:  intVal(c.HTTPConfig.MaxHeaderBytes),
-		HTTPResponseHeaders: c.HTTPConfig.ResponseHeaders,
-		AllowWriteHTTPFrom:  b.cidrsVal("allow_write_http_from", c.HTTPConfig.AllowWriteHTTPFrom),
-		HTTPUseCache:        boolValWithDefault(c.HTTPConfig.UseCache, true),
+		HTTPPort:              httpPort,
+		HTTPSPort:             httpsPort,
+		HTTPAddrs:             httpAddrs,
+		HTTPSAddrs:            httpsAddrs,
+		HTTPBlockEndpoints:    c.HTTPConfig.BlockEndpoints,
+		HTTPMaxHeaderBytes:    intVal(c.HTTPConfig.MaxHeaderBytes),
+		HTTPResponseHeaders:   c.HTTPConfig.ResponseHeaders,
+		AllowWriteHTTPFrom:    b.cidrsVal("allow_write_http_from", c.HTTPConfig.AllowWriteHTTPFrom),
+		HTTPUseCache:          boolValWithDefault(c.HTTPConfig.UseCache, true),
+		HTTPReadTimeout:       b.durationValWithDefaultMin("http_config.read_timeout", c.HTTPConfig.ReadTimeout, 15*time.Minute, 1*time.Second),
+		HTTPReadHeaderTimeout: b.durationValWithDefaultMin("http_config.read_header_timeout", c.HTTPConfig.ReadHeaderTimeout, 10*time.Second, 1*time.Second),
+		HTTPWriteTimeout:      b.durationValWithDefaultMin("http_config.write_timeout", c.HTTPConfig.WriteTimeout, 15*time.Minute, 1*time.Second),
+		HTTPIdleTimeout:       b.durationValWithDefaultMin("http_config.idle_timeout", c.HTTPConfig.IdleTimeout, 120*time.Second, 10*time.Second),
 
 		// Telemetry
 		Telemetry: lib.TelemetryConfig{
@@ -964,6 +1029,12 @@ func (b *builder) build() (rt RuntimeConfig, err error) {
 				Expiration: b.durationVal("prometheus_retention_time", c.Telemetry.PrometheusRetentionTime),
 				Name:       stringVal(c.Telemetry.MetricsPrefix),
 			},
+			CertificateEnabled:               b.getCertificateEnabled(c.Telemetry.Certificate),
+			CertificateCacheDuration:         b.getCertificateCacheDuration(c.Telemetry.Certificate),
+			CertificateCriticalThresholdDays: b.getCertificateCriticalThresholdDays(c.Telemetry.Certificate),
+			CertificateWarningThresholdDays:  b.getCertificateWarningThresholdDays(c.Telemetry.Certificate),
+			CertificateInfoThresholdDays:     b.getCertificateInfoThresholdDays(c.Telemetry.Certificate),
+			CertificateExcludeAutoRenewable:  b.getCertificateExcludeAutoRenewable(c.Telemetry.Certificate),
 		},
 
 		// Agent
@@ -992,17 +1063,19 @@ func (b *builder) build() (rt RuntimeConfig, err error) {
 		AutoEncryptIPSAN:                       autoEncryptIPSAN,
 		AutoEncryptAllowTLS:                    autoEncryptAllowTLS,
 		AutoConfig:                             autoConfig,
-		Cloud:                                  b.cloudConfigVal(c),
 		ConnectEnabled:                         connectEnabled,
 		ConnectCAProvider:                      connectCAProvider,
 		ConnectCAConfig:                        connectCAConfig,
 		ConnectMeshGatewayWANFederationEnabled: connectMeshGatewayWANFederationEnabled,
 		ConnectSidecarMinPort:                  sidecarMinPort,
 		ConnectSidecarMaxPort:                  sidecarMaxPort,
+		ConnectVirtualIPCIDRv4:                 connectVirtualIPCIDRv4,
+		ConnectVirtualIPCIDRv6:                 connectVirtualIPCIDRv6,
 		ConnectTestCALeafRootChangeSpread:      b.durationVal("connect.test_ca_leaf_root_change_spread", c.Connect.TestCALeafRootChangeSpread),
 		ExposeMinPort:                          exposeMinPort,
 		ExposeMaxPort:                          exposeMaxPort,
 		DataDir:                                dataDir,
+		TokenDirs:                              tokenDirs,
 		Datacenter:                             datacenter,
 		DefaultQueryTime:                       b.durationVal("default_query_time", c.DefaultQueryTime),
 		DefaultIntentionPolicy:                 stringVal(c.DefaultIntentionPolicy),
@@ -1032,6 +1105,7 @@ func (b *builder) build() (rt RuntimeConfig, err error) {
 		GRPCKeepaliveTimeout:       b.durationValWithDefaultMin("performance.grpc_keepalive_timeout", c.Performance.GRPCKeepaliveTimeout, 20*time.Second, time.Second),
 		HTTPMaxConnsPerClient:      intVal(c.Limits.HTTPMaxConnsPerClient),
 		HTTPSHandshakeTimeout:      b.durationVal("limits.https_handshake_timeout", c.Limits.HTTPSHandshakeTimeout),
+		GRPCMaxConnsPerClient:      intVal(c.Limits.GRPCMaxConnsPerClient),
 		KVMaxValueSize:             uint64Val(c.Limits.KVMaxValueSize),
 		LeaveDrainTime:             b.durationVal("performance.leave_drain_time", c.Performance.LeaveDrainTime),
 		LeaveOnTerm:                leaveOnTerm,
@@ -1121,8 +1195,7 @@ func (b *builder) build() (rt RuntimeConfig, err error) {
 		LocalProxyConfigResyncInterval:    30 * time.Second,
 	}
 
-	// host metrics are enabled if consul is configured with HashiCorp Cloud Platform integration
-	rt.Telemetry.EnableHostMetrics = boolValWithDefault(c.Telemetry.EnableHostMetrics, rt.IsCloudEnabled())
+	rt.Telemetry.EnableHostMetrics = boolValWithDefault(c.Telemetry.EnableHostMetrics, false)
 
 	rt.TLS, err = b.buildTLSConfig(rt, c.TLS)
 	if err != nil {
@@ -1289,6 +1362,27 @@ func (b *builder) validate(rt RuntimeConfig) error {
 			return fmt.Errorf("Error getting info on data_dir: %s", err)
 		case err == nil && !fi.IsDir():
 			return fmt.Errorf("data_dir %q is not a directory", rt.DataDir)
+		}
+	}
+
+	if !rt.DevMode {
+		if rt.TokenDirs != "" {
+			// TokenDirs supports a comma-separated list of directories (matching
+			// the runtime split performed by the Vault auth modules). Validate
+			// each entry individually.
+			for _, dir := range strings.Split(rt.TokenDirs, ",") {
+				dir = strings.TrimSpace(dir)
+				if dir == "" {
+					continue
+				}
+				fi, err := os.Stat(dir)
+				switch {
+				case err != nil && !os.IsNotExist(err):
+					return fmt.Errorf("Error getting info on token_dirs: %s", err)
+				case err == nil && !fi.IsDir():
+					return fmt.Errorf("token_dirs %q is not a directory", dir)
+				}
+			}
 		}
 	}
 
@@ -1552,6 +1646,10 @@ func (b *builder) validate(rt RuntimeConfig) error {
 	}
 
 	if err := checkLimitsFromMaxConnsPerClient(rt.HTTPMaxConnsPerClient); err != nil {
+		return err
+	}
+
+	if err := checkLimitsFromMaxConnsPerClient(rt.GRPCMaxConnsPerClient); err != nil {
 		return err
 	}
 
@@ -1823,6 +1921,7 @@ func (b *builder) upstreamsVal(v []Upstream) structs.Upstreams {
 			DestinationPartition: stringVal(u.DestinationPartition),
 			DestinationPeer:      stringVal(u.DestinationPeer),
 			DestinationName:      stringVal(u.DestinationName),
+			DestinationPort:      stringVal(u.DestinationPort),
 			Datacenter:           stringVal(u.Datacenter),
 			LocalBindAddress:     stringVal(u.LocalBindAddress),
 			LocalBindPort:        intVal(u.LocalBindPort),
@@ -1965,7 +2064,6 @@ func (b *builder) uiConfigVal(v RawUIConfig) UIConfig {
 		MetricsProviderOptionsJSON: stringVal(v.MetricsProviderOptionsJSON),
 		MetricsProxy:               b.uiMetricsProxyVal(v.MetricsProxy),
 		DashboardURLTemplates:      v.DashboardURLTemplates,
-		HCPEnabled:                 os.Getenv("CONSUL_HCP_ENABLED") == "true",
 	}
 }
 
@@ -2594,75 +2692,6 @@ func validateAutoConfigAuthorizer(rt RuntimeConfig) error {
 		}
 	}
 	return nil
-}
-
-func (b *builder) cloudConfigVal(v Config) hcpconfig.CloudConfig {
-	// Load the same environment variables expected by hcp-sdk-go
-	envHostname, ok := os.LookupEnv("HCP_API_ADDRESS")
-	if !ok {
-		if legacyEnvHostname, ok := os.LookupEnv("HCP_API_HOST"); ok {
-			// Remove only https scheme prefixes from the deprecated environment
-			// variable for specifying the API host. Mirrors the same behavior as
-			// hcp-sdk-go.
-			if strings.HasPrefix(strings.ToLower(legacyEnvHostname), "https://") {
-				legacyEnvHostname = legacyEnvHostname[8:]
-			}
-			envHostname = legacyEnvHostname
-		}
-	}
-
-	var envTLSConfig *tls.Config
-	if os.Getenv("HCP_AUTH_TLS") == "insecure" ||
-		os.Getenv("HCP_SCADA_TLS") == "insecure" ||
-		os.Getenv("HCP_API_TLS") == "insecure" {
-		envTLSConfig = &tls.Config{InsecureSkipVerify: true}
-	}
-
-	val := hcpconfig.CloudConfig{
-		ResourceID:   os.Getenv("HCP_RESOURCE_ID"),
-		ClientID:     os.Getenv("HCP_CLIENT_ID"),
-		ClientSecret: os.Getenv("HCP_CLIENT_SECRET"),
-		AuthURL:      os.Getenv("HCP_AUTH_URL"),
-		Hostname:     envHostname,
-		ScadaAddress: os.Getenv("HCP_SCADA_ADDRESS"),
-		TLSConfig:    envTLSConfig,
-	}
-
-	// Node id might get overridden in setup.go:142
-	nodeID := stringVal(v.NodeID)
-	val.NodeID = types.NodeID(nodeID)
-	val.NodeName = b.nodeName(v.NodeName)
-
-	if v.Cloud == nil {
-		return val
-	}
-
-	// Load configuration file variables for anything not set by environment variables
-	if val.AuthURL == "" {
-		val.AuthURL = stringVal(v.Cloud.AuthURL)
-	}
-
-	if val.Hostname == "" {
-		val.Hostname = stringVal(v.Cloud.Hostname)
-	}
-
-	if val.ScadaAddress == "" {
-		val.ScadaAddress = stringVal(v.Cloud.ScadaAddress)
-	}
-
-	if val.ResourceID == "" {
-		val.ResourceID = stringVal(v.Cloud.ResourceID)
-	}
-
-	if val.ClientID == "" {
-		val.ClientID = stringVal(v.Cloud.ClientID)
-	}
-
-	if val.ClientSecret == "" {
-		val.ClientSecret = stringVal(v.Cloud.ClientSecret)
-	}
-
-	return val
 }
 
 // decodeBytes returns the encryption key decoded.

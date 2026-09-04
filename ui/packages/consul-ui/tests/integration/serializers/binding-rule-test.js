@@ -1,5 +1,5 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
@@ -14,7 +14,6 @@ module('Integration | Serializer | binding-rule', function (hooks) {
   const partition = 'default';
   [undefinedNspace, 'team-1', undefined].forEach((nspace) => {
     test(`respondForQuery returns the correct data for list endpoint when nspace is ${nspace}`, function (assert) {
-      assert.expect(1);
       const serializer = this.owner.lookup('serializer:binding-rule');
       const request = {
         url: `/v1/acl/binding-rules?dc=${dc}${

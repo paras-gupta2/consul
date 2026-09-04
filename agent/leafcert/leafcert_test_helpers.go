@@ -1,4 +1,4 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2024, 2026
 // SPDX-License-Identifier: BUSL-1.1
 
 package leafcert
@@ -31,6 +31,7 @@ func NewTestManager(t *testing.T, mut func(*Config)) (*Manager, *TestSigner) {
 
 	deps := Deps{
 		Logger:      testutil.Logger(t),
+		Datacenter:  "dc1",
 		RootsReader: signer.RootsReader,
 		CertSigner:  signer,
 		Config: Config{

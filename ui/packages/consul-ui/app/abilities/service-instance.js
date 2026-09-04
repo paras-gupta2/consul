@@ -1,10 +1,12 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
 import BaseAbility, { ACCESS_READ, ACCESS_WRITE } from './base';
+import classic from 'ember-classic-decorator';
 
+@classic
 export default class ServiceInstanceAbility extends BaseAbility {
   resource = 'service';
   generateForSegment(segment) {

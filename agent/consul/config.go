@@ -1,4 +1,4 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2024, 2026
 // SPDX-License-Identifier: BUSL-1.1
 
 package consul
@@ -18,7 +18,6 @@ import (
 	"github.com/hashicorp/consul/agent/checks"
 	consulrate "github.com/hashicorp/consul/agent/consul/rate"
 	"github.com/hashicorp/consul/agent/consul/reporting"
-	hcpconfig "github.com/hashicorp/consul/agent/hcp/config"
 	"github.com/hashicorp/consul/agent/structs"
 	"github.com/hashicorp/consul/internal/gossip/libserf"
 	"github.com/hashicorp/consul/tlsutil"
@@ -415,6 +414,12 @@ type Config struct {
 	// datacenters should exclusively traverse mesh gateways.
 	ConnectMeshGatewayWANFederationEnabled bool
 
+	// ConnectVirtualIPCIDRv4 defines the IPv4 CIDR block used for auto-allocated virtual IPs.
+	ConnectVirtualIPCIDRv4 string
+
+	// ConnectVirtualIPCIDRv6 defines the IPv6 CIDR block used for auto-allocated virtual IPs.
+	ConnectVirtualIPCIDRv6 string
+
 	// DefaultIntentionPolicy is used to define a default intention action for all
 	// sources and destinations. Possible values are "allow", "deny", or "" (blank).
 	// For compatibility, falls back to ACLResolverSettings.ACLDefaultPolicy (which
@@ -426,6 +431,11 @@ type Config struct {
 	// disable a background routine.
 	DisableFederationStateAntiEntropy bool
 
+	// FederationStateAntiEntropySyncInterval is the minimum duration between
+	// successive federation state anti-entropy sync attempts. If zero, a
+	// default interval is used.
+	FederationStateAntiEntropySyncInterval time.Duration
+
 	// OverrideInitialSerfTags solely exists for use in unit tests to ensure
 	// that a serf tag is initially set to a known value, rather than the
 	// default to test some consul upgrade scenarios with fewer races.
@@ -434,6 +444,14 @@ type Config struct {
 	// CAConfig is used to apply the initial Connect CA configuration when
 	// bootstrapping.
 	CAConfig *structs.CAConfiguration
+
+	// TokenDirs is the startup-only allowlist of directories from which Vault
+	// auth-method credential files (JWT, AppRole role_id/secret_id, Kubernetes
+	// service-account token) may be read. It is set once from RuntimeConfig at
+	// agent startup and is intentionally not writable via the Connect CA API,
+	// so that an operator:write caller cannot widen the allowlist after the
+	// agent has started.
+	TokenDirs string
 
 	// ConfigEntryBootstrap contains a list of ConfigEntries to ensure are created
 	// If entries of the same Kind/Name exist already these will not update them.
@@ -454,8 +472,6 @@ type Config struct {
 
 	Locality *structs.Locality
 
-	Cloud hcpconfig.CloudConfig
-
 	Reporting Reporting
 
 	// Embedded Consul Enterprise specific configuration
@@ -471,6 +487,15 @@ type Config struct {
 	// When disabled, Consul does not restrict on the number of xDS connections on a server.
 	// In this scenario, you should deploy an external load balancer in front of the consul servers and distribute the load accordingly.
 	EnableXDSLoadBalancing bool
+
+	// CertificateTelemetryEnabled controls whether certificate expiry metrics are emitted.
+	CertificateTelemetryEnabled bool
+
+	// CertificateTelemetryCriticalThresholdDays is the number of days before expiry to emit critical severity.
+	CertificateTelemetryCriticalThresholdDays int
+
+	// CertificateTelemetryWarningThresholdDays is the number of days before expiry to emit warning severity.
+	CertificateTelemetryWarningThresholdDays int
 }
 
 func (c *Config) InPrimaryDatacenter() bool {
@@ -531,19 +556,20 @@ func DefaultConfig() *Config {
 			ACLDownPolicy:    "extend-cache",
 			ACLDefaultPolicy: "allow",
 		},
-		ACLReplicationRate:                   1,
-		ACLReplicationBurst:                  5,
-		ACLReplicationApplyLimit:             100, // ops / sec
-		ConfigReplicationRate:                1,
-		ConfigReplicationBurst:               5,
-		ConfigReplicationApplyLimit:          100, // ops / sec
-		FederationStateReplicationRate:       1,
-		FederationStateReplicationBurst:      5,
-		FederationStateReplicationApplyLimit: 100, // ops / sec
-		TombstoneTTL:                         15 * time.Minute,
-		TombstoneTTLGranularity:              30 * time.Second,
-		SessionTTLMin:                        10 * time.Second,
-		ACLTokenMinExpirationTTL:             1 * time.Minute,
+		ACLReplicationRate:                     1,
+		ACLReplicationBurst:                    5,
+		ACLReplicationApplyLimit:               100, // ops / sec
+		ConfigReplicationRate:                  1,
+		ConfigReplicationBurst:                 5,
+		ConfigReplicationApplyLimit:            100, // ops / sec
+		FederationStateReplicationRate:         1,
+		FederationStateReplicationBurst:        5,
+		FederationStateReplicationApplyLimit:   100, // ops / sec
+		FederationStateAntiEntropySyncInterval: defaultFederationStateAntiEntropySyncInterval,
+		TombstoneTTL:                           15 * time.Minute,
+		TombstoneTTLGranularity:                30 * time.Second,
+		SessionTTLMin:                          10 * time.Second,
+		ACLTokenMinExpirationTTL:               1 * time.Minute,
 		// Duration is stored as an int64. Setting the default max
 		// to the max possible duration (approx 290 years).
 		ACLTokenMaxExpirationTTL: 1<<63 - 1,

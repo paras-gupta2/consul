@@ -1,10 +1,11 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2024, 2026
 // SPDX-License-Identifier: BUSL-1.1
 
 package xds
 
 import (
 	"fmt"
+	"sort"
 
 	envoy_core_v3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	envoy_listener_v3 "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
@@ -49,7 +50,17 @@ func (s *ResourceGenerator) makeAPIGatewayListeners(address string, cfgSnap *pro
 			}
 		}
 
-		isAPIGatewayWithTLS := len(boundListener.Certificates) > 0
+		effectiveTLSCfg, err := resolveAPIListenerTLSConfig(cfgSnap.APIGateway.TLSConfig, listenerCfg.TLS)
+		if err != nil {
+			return nil, err
+		}
+
+		routeSDSOverrides, err := collectAPIGatewayServiceSDSOverridesWithResolvedTLS(cfgSnap, readyListener, effectiveTLSCfg)
+		if err != nil {
+			return nil, err
+		}
+
+		isAPIGatewayWithTLS := len(boundListener.Certificates) > 0 || hasSDSCert(effectiveTLSCfg.SDS) || len(routeSDSOverrides) > 0
 
 		tlsContext, err := makeDownstreamTLSContextFromSnapshotAPIListenerConfig(cfgSnap, listenerCfg)
 		if err != nil {
@@ -122,20 +133,22 @@ func (s *ResourceGenerator) makeAPIGatewayListeners(address string, cfgSnap *pro
 				}
 
 				// construct SNI filter chains
-				setAPIGatewayTLSConfig(listenerCfg, cfgSnap)
 				l.FilterChains, err = s.makeInlineOverrideFilterChains(
 					cfgSnap,
-					cfgSnap.APIGateway.TLSConfig,
+					*effectiveTLSCfg,
+					routeSDSOverrides,
 					listenerKey.Protocol, listenerFilterOpts{
-						useRDS:              useRDS,
-						fetchTimeoutRDS:     cfgSnap.GetXDSCommonConfig(s.Logger).GetXDSFetchTimeout(),
-						protocol:            listenerKey.Protocol,
-						routeName:           listenerKey.RouteName(),
-						cluster:             clusterName,
-						statPrefix:          "ingress_upstream_",
-						accessLogs:          &cfgSnap.Proxy.AccessLogs,
-						logger:              s.Logger,
-						maxRequestHeadersKb: maxRequestHeadersKb,
+						useRDS:               useRDS,
+						fetchTimeoutRDS:      cfgSnap.GetXDSCommonConfig(s.Logger).GetXDSFetchTimeout(),
+						protocol:             listenerKey.Protocol,
+						routeName:            listenerKey.RouteName(),
+						cluster:              clusterName,
+						statPrefix:           "ingress_upstream_",
+						accessLogs:           &cfgSnap.Proxy.AccessLogs,
+						logger:               s.Logger,
+						maxRequestHeadersKb:  maxRequestHeadersKb,
+						suppressEnvoyHeaders: proxyConfig.SuppressEnvoyHeaders,
+						serverHeaderName:     proxyConfig.EnvoyServerHeaderName,
 					},
 					certs,
 				)
@@ -222,27 +235,31 @@ func (s *ResourceGenerator) makeAPIGatewayListeners(address string, cfgSnap *pro
 				maxRequestHeadersKb = listenerCfg.MaxRequestHeadersKB
 			}
 			filterOpts := listenerFilterOpts{
-				useRDS:              true,
-				fetchTimeoutRDS:     cfgSnap.GetXDSCommonConfig(s.Logger).GetXDSFetchTimeout(),
-				protocol:            listenerKey.Protocol,
-				filterName:          listenerKey.RouteName(),
-				routeName:           listenerKey.RouteName(),
-				cluster:             "",
-				statPrefix:          "ingress_upstream_",
-				routePath:           "",
-				httpAuthzFilters:    authFilters,
-				accessLogs:          &cfgSnap.Proxy.AccessLogs,
-				logger:              s.Logger,
-				maxRequestHeadersKb: maxRequestHeadersKb,
+				useRDS:               true,
+				fetchTimeoutRDS:      cfgSnap.GetXDSCommonConfig(s.Logger).GetXDSFetchTimeout(),
+				protocol:             listenerKey.Protocol,
+				filterName:           listenerKey.RouteName(),
+				routeName:            listenerKey.RouteName(),
+				cluster:              "",
+				statPrefix:           "ingress_upstream_",
+				routePath:            "",
+				httpAuthzFilters:     authFilters,
+				accessLogs:           &cfgSnap.Proxy.AccessLogs,
+				logger:               s.Logger,
+				maxRequestHeadersKb:  maxRequestHeadersKb,
+				suppressEnvoyHeaders: proxyConfig.SuppressEnvoyHeaders,
+				serverHeaderName:     proxyConfig.EnvoyServerHeaderName,
 			}
+
+			// Apply path normalization options to prevent L7 intention RBAC bypass (CVE-2024-10005)
+			setNormalizationOptions(cfgSnap.MeshConfig().GetHTTPIncomingRequestNormalization(), &filterOpts)
 
 			// Generate any filter chains needed for services with custom TLS certs
 			// via SDS.
 			sniFilterChains := []*envoy_listener_v3.FilterChain{}
 
 			if isAPIGatewayWithTLS {
-				setAPIGatewayTLSConfig(listenerCfg, cfgSnap)
-				sniFilterChains, err = s.makeInlineOverrideFilterChains(cfgSnap, cfgSnap.APIGateway.TLSConfig, listenerKey.Protocol, filterOpts, certs)
+				sniFilterChains, err = s.makeInlineOverrideFilterChains(cfgSnap, *effectiveTLSCfg, routeSDSOverrides, listenerKey.Protocol, filterOpts, certs)
 				if err != nil {
 					return nil, err
 				}
@@ -295,6 +312,140 @@ type readyListener struct {
 	upstreams        []structs.Upstream
 }
 
+type apiGatewayServiceSDSOverride struct {
+	Hosts []string
+	SDS   structs.GatewayTLSSDSConfig
+}
+
+func collectAPIGatewayServiceSDSOverridesWithResolvedTLS(
+	cfgSnap *proxycfg.ConfigSnapshot,
+	ready readyListener,
+	resolvedTLSCfg *structs.GatewayTLSConfig,
+) ([]apiGatewayServiceSDSOverride, error) {
+
+	var defaultSDS *structs.GatewayTLSSDSConfig
+	if resolvedTLSCfg != nil && resolvedTLSCfg.SDS != nil && resolvedTLSCfg.SDS.ClusterName != "" {
+		defaultSDS = resolvedTLSCfg.SDS
+	}
+
+	switch ready.listenerCfg.Protocol {
+	case structs.ListenerProtocolHTTP:
+		byKey := make(map[string]*apiGatewayServiceSDSOverride)
+		hostToKey := make(map[string]string)
+
+		for routeRef := range ready.routeReferences {
+			route, ok := cfgSnap.APIGateway.HTTPRoutes.Get(routeRef)
+			if !ok {
+				continue
+			}
+
+			for _, rule := range route.Rules {
+				for _, service := range rule.Services {
+					sds := service.SDSConfigOrNil()
+					if sds == nil {
+						continue
+					}
+
+					effectiveSDS := *sds
+					if effectiveSDS.ClusterName == "" && defaultSDS != nil {
+						effectiveSDS.ClusterName = defaultSDS.ClusterName
+					}
+					if effectiveSDS.ClusterName == "" {
+						return nil, fmt.Errorf("route %q service %q sets TLS.SDS without ClusterName and no listener or gateway TLS.SDS.ClusterName is available", route.Name, service.Name)
+					}
+
+					key := fmt.Sprintf("%s|%s", effectiveSDS.ClusterName, effectiveSDS.CertResource)
+					override, ok := byKey[key]
+					if !ok {
+						override = &apiGatewayServiceSDSOverride{SDS: effectiveSDS}
+						byKey[key] = override
+					}
+
+					for _, host := range route.Hostnames {
+						if prev, seen := hostToKey[host]; seen && prev != key {
+							return nil, fmt.Errorf("host %q maps to multiple TLS.SDS configs on listener %q", host, ready.listenerCfg.Name)
+						}
+						hostToKey[host] = key
+						if !containsString(override.Hosts, host) {
+							override.Hosts = append(override.Hosts, host)
+						}
+					}
+				}
+			}
+		}
+
+		keys := make([]string, 0, len(byKey))
+		for k := range byKey {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+
+		result := make([]apiGatewayServiceSDSOverride, 0, len(keys))
+		for _, key := range keys {
+			override := byKey[key]
+			sort.Strings(override.Hosts)
+			result = append(result, *override)
+		}
+
+		return result, nil
+
+	case structs.ListenerProtocolTCP:
+		var selected *structs.GatewayTLSSDSConfig
+
+		for routeRef := range ready.routeReferences {
+			route, ok := cfgSnap.APIGateway.TCPRoutes.Get(routeRef)
+			if !ok {
+				continue
+			}
+
+			for _, service := range route.Services {
+				sds := service.SDSConfigOrNil()
+				if sds == nil {
+					continue
+				}
+
+				effectiveSDS := *sds
+				if effectiveSDS.ClusterName == "" && defaultSDS != nil {
+					effectiveSDS.ClusterName = defaultSDS.ClusterName
+				}
+				if effectiveSDS.ClusterName == "" {
+					return nil, fmt.Errorf("route %q service %q sets TLS.SDS without ClusterName and no listener or gateway TLS.SDS.ClusterName is available", route.Name, service.Name)
+				}
+
+				if selected == nil {
+					selected = &effectiveSDS
+					continue
+				}
+
+				if selected.ClusterName != effectiveSDS.ClusterName || selected.CertResource != effectiveSDS.CertResource {
+					return nil, fmt.Errorf("listener %q has multiple TCP route TLS.SDS overrides; found both %q/%q and %q/%q",
+						ready.listenerCfg.Name,
+						selected.ClusterName, selected.CertResource,
+						effectiveSDS.ClusterName, effectiveSDS.CertResource,
+					)
+				}
+			}
+		}
+
+		if selected == nil {
+			return nil, nil
+		}
+
+		return []apiGatewayServiceSDSOverride{{SDS: *selected}}, nil
+	}
+
+	return nil, nil
+}
+
+func containsString(items []string, val string) bool {
+	for _, item := range items {
+		if item == val {
+			return true
+		}
+	}
+	return false
+}
+
 // getReadyListeners returns a map containing the list of upstreams for each listener that is ready
 func getReadyListeners(cfgSnap *proxycfg.ConfigSnapshot) map[string]readyListener {
 	ready := map[string]readyListener{}
@@ -307,6 +458,16 @@ func getReadyListeners(cfgSnap *proxycfg.ConfigSnapshot) map[string]readyListene
 		// For each route bound to the listener
 		boundListener := cfgSnap.APIGateway.BoundListeners[l.Name]
 		for _, routeRef := range boundListener.Routes {
+			switch routeRef.Kind {
+			case structs.HTTPRoute:
+				if _, ok := cfgSnap.APIGateway.HTTPRoutes.Get(routeRef); !ok {
+					continue
+				}
+			case structs.TCPRoute:
+				if _, ok := cfgSnap.APIGateway.TCPRoutes.Get(routeRef); !ok {
+					continue
+				}
+			}
 			// Get all upstreams for the route
 			routeUpstreams, ok := cfgSnap.APIGateway.Upstreams[routeRef]
 			if !ok {
@@ -371,13 +532,13 @@ func makeCommonTLSContextFromSnapshotAPIGatewayListenerConfig(
 ) (*envoy_tls_v3.CommonTlsContext, error) {
 	var tlsContext *envoy_tls_v3.CommonTlsContext
 
-	// API Gateway TLS config is per listener
-	tlsCfg, err := resolveAPIListenerTLSConfig(listenerCfg.TLS)
+	// API Gateway TLS config is resolved from gateway defaults plus listener overrides.
+	tlsCfg, err := resolveAPIListenerTLSConfig(cfgSnap.APIGateway.TLSConfig, listenerCfg.TLS)
 	if err != nil {
 		return nil, err
 	}
 
-	connectTLSEnabled := (!listenerCfg.TLS.IsEmpty())
+	connectTLSEnabled := !isGatewayTLSConfigEmpty(*tlsCfg) || len(listenerCfg.TLS.Certificates) > 0
 
 	if connectTLSEnabled {
 		tlsContext = makeCommonTLSContext(cfgSnap.Leaf(), cfgSnap.RootPEMs(), makeTLSParametersFromGatewayTLSConfig(*tlsCfg))
@@ -386,18 +547,41 @@ func makeCommonTLSContextFromSnapshotAPIGatewayListenerConfig(
 	return tlsContext, nil
 }
 
-func resolveAPIListenerTLSConfig(listenerTLSCfg structs.APIGatewayTLSConfiguration) (*structs.GatewayTLSConfig, error) {
-	var mergedCfg structs.GatewayTLSConfig
+func resolveAPIListenerTLSConfig(gatewayTLSCfg structs.GatewayTLSConfig, listenerTLSCfg structs.APIGatewayTLSConfiguration) (*structs.GatewayTLSConfig, error) {
+	mergedCfg := gatewayTLSCfg
+	if gatewayTLSCfg.SDS != nil {
+		sds := *gatewayTLSCfg.SDS
+		mergedCfg.SDS = &sds
+	}
 
-	if !listenerTLSCfg.IsEmpty() {
-		if listenerTLSCfg.MinVersion != types.TLSVersionUnspecified {
-			mergedCfg.TLSMinVersion = listenerTLSCfg.MinVersion
+	if listenerTLSCfg.SDS != nil {
+		sds := *listenerTLSCfg.SDS
+		if sds.ClusterName == "" && mergedCfg.SDS != nil {
+			sds.ClusterName = mergedCfg.SDS.ClusterName
 		}
-		if listenerTLSCfg.MaxVersion != types.TLSVersionUnspecified {
-			mergedCfg.TLSMaxVersion = listenerTLSCfg.MaxVersion
+		if sds.CertResource == "" && mergedCfg.SDS != nil {
+			sds.CertResource = mergedCfg.SDS.CertResource
 		}
-		if len(listenerTLSCfg.CipherSuites) != 0 {
-			mergedCfg.CipherSuites = listenerTLSCfg.CipherSuites
+		mergedCfg.SDS = &sds
+	}
+	if listenerTLSCfg.MinVersion != types.TLSVersionUnspecified {
+		mergedCfg.TLSMinVersion = listenerTLSCfg.MinVersion
+	}
+	if listenerTLSCfg.MaxVersion != types.TLSVersionUnspecified {
+		mergedCfg.TLSMaxVersion = listenerTLSCfg.MaxVersion
+	}
+	if len(listenerTLSCfg.CipherSuites) != 0 {
+		mergedCfg.CipherSuites = listenerTLSCfg.CipherSuites
+	}
+
+	if mergedCfg.SDS != nil {
+		hasCluster := mergedCfg.SDS.ClusterName != ""
+		hasCertResource := mergedCfg.SDS.CertResource != ""
+		if hasCertResource && !hasCluster {
+			return nil, fmt.Errorf("invalid TLS.SDS configuration: ClusterName is required when CertResource is set")
+		}
+		if listenerTLSCfg.SDS != nil && hasCluster && !hasCertResource {
+			return nil, fmt.Errorf("invalid TLS.SDS configuration: CertResource is required when ClusterName is set")
 		}
 	}
 
@@ -408,10 +592,19 @@ func resolveAPIListenerTLSConfig(listenerTLSCfg structs.APIGatewayTLSConfigurati
 	return &mergedCfg, nil
 }
 
+func isGatewayTLSConfigEmpty(cfg structs.GatewayTLSConfig) bool {
+	return !hasSDSCert(cfg.SDS) && cfg.TLSMinVersion == "" && cfg.TLSMaxVersion == "" && len(cfg.CipherSuites) == 0
+}
+
+func hasSDSCert(sds *structs.GatewayTLSSDSConfig) bool {
+	return sds != nil && sds.CertResource != ""
+}
+
 // when we have multiple certificates on a single listener, we need
 // to duplicate the filter chains with multiple TLS contexts
 func (s *ResourceGenerator) makeInlineOverrideFilterChains(cfgSnap *proxycfg.ConfigSnapshot,
 	tlsCfg structs.GatewayTLSConfig,
+	serviceSDSOverrides []apiGatewayServiceSDSOverride,
 	protocol string,
 	filterOpts listenerFilterOpts,
 	certs []structs.ConfigEntry,
@@ -446,7 +639,81 @@ func (s *ResourceGenerator) makeInlineOverrideFilterChains(cfgSnap *proxycfg.Con
 		return nil
 	}
 
-	multipleCerts := len(certs) > 1
+	for i, override := range serviceSDSOverrides {
+		overrideCfg := tlsCfg
+		overrideCfg.SDS = &override.SDS
+		if err := constructChain(fmt.Sprintf("service-sds-%d", i), override.Hosts, makeCommonTLSContextFromGatewayTLSConfig(overrideCfg)); err != nil {
+			return nil, err
+		}
+	}
+
+	for _, override := range serviceSDSOverrides {
+		if len(override.Hosts) == 0 {
+			// A catch-all service override (used by TCP routes) supersedes all
+			// listener default certificate chains for this listener.
+			return chains, nil
+		}
+	}
+
+	if hasSDSCert(tlsCfg.SDS) {
+		if err := constructChain("sds", nil, makeCommonTLSContextFromGatewayTLSConfig(tlsCfg)); err != nil {
+			return nil, err
+		}
+		return chains, nil
+	}
+
+	// Separate file-system and inline certificates
+	var fileSystemCerts []*structs.FileSystemCertificateConfigEntry
+	var inlineCerts []*structs.InlineCertificateConfigEntry
+
+	for _, cert := range certs {
+		switch tce := cert.(type) {
+		case *structs.FileSystemCertificateConfigEntry:
+			fileSystemCerts = append(fileSystemCerts, tce)
+		case *structs.InlineCertificateConfigEntry:
+			inlineCerts = append(inlineCerts, tce)
+		}
+	}
+
+	// Handle file-system certificates: consolidate into ONE filter chain with multiple SDS configs
+	// This prevents duplicate empty filter chain matchers that Envoy rejects
+	if len(fileSystemCerts) > 0 {
+		var sdsConfigs []*envoy_tls_v3.SdsSecretConfig
+		for _, cert := range fileSystemCerts {
+			sdsConfigs = append(sdsConfigs, &envoy_tls_v3.SdsSecretConfig{
+				// Reference the secret returned in xds/secrets.go by name
+				Name: cert.GetName(),
+				SdsConfig: &envoy_core_v3.ConfigSource{
+					// Use ADS (Aggregated Discovery Service) to fetch secrets from Consul
+					ConfigSourceSpecifier: &envoy_core_v3.ConfigSource_Ads{
+						Ads: &envoy_core_v3.AggregatedConfigSource{},
+					},
+					ResourceApiVersion: envoy_core_v3.ApiVersion_V3,
+				},
+			})
+		}
+
+		tlsContext := &envoy_tls_v3.CommonTlsContext{
+			TlsParams:                      makeTLSParametersFromGatewayTLSConfig(tlsCfg),
+			TlsCertificateSdsSecretConfigs: sdsConfigs,
+		}
+
+		// Create a single filter chain for all file-system certificates
+		// Envoy will automatically select the correct certificate based on SNI
+		if err := constructChain("file-system-certificates", nil, tlsContext); err != nil {
+			return nil, err
+		}
+
+		// If we only have file-system certs, return early
+		if len(inlineCerts) == 0 {
+			return chains, nil
+		}
+	}
+
+	// Handle inline certificates with the existing logic
+	// When we have file-system certs, we need to treat single inline cert as multiple
+	// to avoid duplicate catch-all filter chains
+	multipleCerts := len(inlineCerts) > 1 || len(fileSystemCerts) > 0
 
 	allCertHosts := map[string]struct{}{}
 	overlappingHosts := map[string]struct{}{}
@@ -454,73 +721,53 @@ func (s *ResourceGenerator) makeInlineOverrideFilterChains(cfgSnap *proxycfg.Con
 	if multipleCerts {
 		// we only need to prune out overlapping hosts if we have more than
 		// one certificate
-		for _, cert := range certs {
-			switch tce := cert.(type) {
-			case *structs.InlineCertificateConfigEntry:
-				hosts, err := tce.Hosts()
-				if err != nil {
-					return nil, fmt.Errorf("unable to parse hosts from x509 certificate: %v", hosts)
+		for _, cert := range inlineCerts {
+			hosts, err := cert.Hosts()
+			if err != nil {
+				return nil, fmt.Errorf("unable to parse hosts from x509 certificate: %v", hosts)
+			}
+			for _, host := range hosts {
+				if _, ok := allCertHosts[host]; ok {
+					overlappingHosts[host] = struct{}{}
 				}
-				for _, host := range hosts {
-					if _, ok := allCertHosts[host]; ok {
-						overlappingHosts[host] = struct{}{}
-					}
-					allCertHosts[host] = struct{}{}
-				}
-			default:
-				// do nothing for FileSystemCertificates because we don't actually have the certificate available
+				allCertHosts[host] = struct{}{}
 			}
 		}
 	}
 
-	constructTLSContext := func(certConfig structs.ConfigEntry) (*envoy_tls_v3.CommonTlsContext, error) {
-		switch tce := certConfig.(type) {
-		case *structs.InlineCertificateConfigEntry:
-			return makeInlineTLSContextFromGatewayTLSConfig(tlsCfg, tce), nil
-		case *structs.FileSystemCertificateConfigEntry:
-			return makeFileSystemTLSContextFromGatewayTLSConfig(tlsCfg, tce), nil
-		default:
-			return nil, fmt.Errorf("unsupported config entry kind %s", tce.GetKind())
-		}
-	}
-
-	for _, cert := range certs {
+	for _, cert := range inlineCerts {
 		var hosts []string
 
 		// if we only have one cert, we just use it for all ingress
 		if multipleCerts {
-			switch tce := cert.(type) {
-			case *structs.InlineCertificateConfigEntry:
-				certHosts, err := tce.Hosts()
-				if err != nil {
-					return nil, fmt.Errorf("unable to parse hosts from x509 certificate: %v", hosts)
+			certHosts, err := cert.Hosts()
+			if err != nil {
+				return nil, fmt.Errorf("unable to parse hosts from x509 certificate: %v", hosts)
+			}
+			// filter out any overlapping hosts so we don't have collisions in our filter chains
+			for _, host := range certHosts {
+				if _, ok := overlappingHosts[host]; !ok {
+					hosts = append(hosts, host)
 				}
-				// filter out any overlapping hosts so we don't have collisions in our filter chains
-				for _, host := range certHosts {
-					if _, ok := overlappingHosts[host]; !ok {
-						hosts = append(hosts, host)
-					}
-				}
+			}
 
-				if len(hosts) == 0 {
-					// all of our hosts are overlapping, so we just skip this filter and it'll be
-					// handled by the default filter chain
-					continue
-				}
+			if len(hosts) == 0 {
+				// all of our hosts are overlapping, so we just skip this filter and it'll be
+				// handled by the default filter chain
+				continue
 			}
 		}
 
-		tlsContext, err := constructTLSContext(cert)
-		if err != nil {
-			continue
-		}
+		tlsContext := makeInlineTLSContextFromGatewayTLSConfig(tlsCfg, cert)
 
 		if err := constructChain(cert.GetName(), hosts, tlsContext); err != nil {
 			return nil, err
 		}
 	}
 
-	if len(certs) > 1 {
+	// Only add default chain if we have multiple inline certs AND no file-system certs
+	// If we have file-system certs, they already provide the catch-all behavior
+	if len(inlineCerts) > 1 && len(fileSystemCerts) == 0 {
 		// if we have more than one cert, add a default handler that uses the leaf cert from connect
 		if err := constructChain("default", nil, makeCommonTLSContext(cfgSnap.Leaf(), cfgSnap.RootPEMs(), makeTLSParametersFromGatewayTLSConfig(tlsCfg))); err != nil {
 			return nil, err
@@ -528,32 +775,4 @@ func (s *ResourceGenerator) makeInlineOverrideFilterChains(cfgSnap *proxycfg.Con
 	}
 
 	return chains, nil
-}
-
-// setAPIGatewayTLSConfig updates the TLS configuration for an API gateway
-// by setting TLS parameters from a listener configuration if the existing
-// configuration is empty.
-// Only empty or unset values are updated, preserving any existing specific configurations.
-func setAPIGatewayTLSConfig(listenerCfg structs.APIGatewayListener, cfgSnap *proxycfg.ConfigSnapshot) {
-	// Create a local TLS config based on listener configuration
-	listenerConfig := structs.GatewayTLSConfig{
-		TLSMinVersion: listenerCfg.TLS.MinVersion,
-		TLSMaxVersion: listenerCfg.TLS.MaxVersion,
-		CipherSuites:  listenerCfg.TLS.CipherSuites,
-	}
-
-	// Check and set TLSMinVersion if empty
-	if cfgSnap.APIGateway.TLSConfig.TLSMinVersion == "" {
-		cfgSnap.APIGateway.TLSConfig.TLSMinVersion = listenerConfig.TLSMinVersion
-	}
-
-	// Check and set TLSMaxVersion if empty
-	if cfgSnap.APIGateway.TLSConfig.TLSMaxVersion == "" {
-		cfgSnap.APIGateway.TLSConfig.TLSMaxVersion = listenerConfig.TLSMaxVersion
-	}
-
-	// Check and set CipherSuites if empty
-	if len(cfgSnap.APIGateway.TLSConfig.CipherSuites) == 0 {
-		cfgSnap.APIGateway.TLSConfig.CipherSuites = listenerConfig.CipherSuites
-	}
 }

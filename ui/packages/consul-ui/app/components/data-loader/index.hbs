@@ -16,8 +16,8 @@
   dispatchError=(queue (action (mut this.error) value="error.errors.firstObject") (action dispatch "ERROR"))
 ) as |api|}}
 
-    {{#yield-slot name="data"}}
-      {{yield api}}
+    {{#if (has-block "data")}}
+      {{yield api to="data"}}
     {{else}}
       {{! if we didn't specify any data}}
       {{#if (not @items)}}
@@ -31,35 +31,35 @@
               @onchange={{queue (action "change" value="data") (action dispatch "SUCCESS")}}
               @onerror={{api.dispatchError}}
             as |source|>
-              {{did-insert (set this 'invalidate' source.invalidate)}}
+              {{did-insert-helper (set this 'invalidate' source.invalidate)}}
             </DataSource>
           {{/if}}
         </State>
       {{/if}}
-    {{/yield-slot}}
+    {{/if}}
 
   <State @matches="loading">
-    {{#yield-slot name="loading"}}
-      {{yield api}}
+    {{#if (has-block "loading")}}
+      {{yield api to="loading"}}
     {{else}}
       <Consul::Loader />
-    {{/yield-slot}}
+    {{/if}}
   </State>
 
   <State @matches="error">
-    {{#yield-slot name="error"}}
-      {{yield api}}
+    {{#if (has-block "error")}}
+      {{yield api to="error"}}
     {{else}}
       <ErrorState @error={{this.error}} />
-    {{/yield-slot}}
+    {{/if}}
   </State>
 
   <State @matches={{array "idle" "disconnected"}}>
 
     <State @matches="disconnected">
       {{#if (not (eq this.error.status '401'))}}
-        {{#yield-slot name="disconnected" params=(block-params (action dispatch "RESET"))}}
-            {{yield api}}
+        {{#if (has-block "disconnected")}}
+            {{yield api (action dispatch "RESET") to="disconnected"}}
         {{else}}
           <Hds::Toast @color='warning'
             {{notification
@@ -68,23 +68,21 @@
             <T.Title>Warning!</T.Title>
             <T.Description>An error was returned whilst loading this data, refresh to try again.</T.Description>
           </Hds::Toast>
-        {{/yield-slot}}
+        {{/if}}
       {{/if}}
     </State>
     {{#if (eq this.error.status "403")}}
-      {{#yield-slot name="error"}}
-        {{yield api}}
+      {{#if (has-block "error")}}
+        {{yield api to="error"}}
       {{else}}
         <ErrorState @error={{this.error}} />
-      {{/yield-slot}}
+      {{/if}}
     {{else}}
-      <YieldSlot @name="loaded">
-        {{yield api}}
-      </YieldSlot>
+      {{yield api to="loaded"}}
     {{/if}}
 
   </State>
 
 {{/let}}
-  {{did-update (fn dispatch "LOAD") src=@src}}
+  {{did-update-helper (fn dispatch "LOAD") src=@src}}
 </StateChart>

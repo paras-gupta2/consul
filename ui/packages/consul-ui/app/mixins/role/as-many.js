@@ -1,5 +1,5 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
@@ -32,7 +32,17 @@ export default Mixin.create({
   },
   serialize: function (snapshot, options) {
     const data = this._super(...arguments);
-    data.Roles = minimizeModel(data.Roles);
+    // In Ember Data 4.12+, we need to access the actual model record
+    // to get the Roles before they're serialized away
+    let roles = [];
+    if (snapshot && snapshot.record && snapshot.record.Roles) {
+      roles = snapshot.record.Roles.toArray
+        ? snapshot.record.Roles.toArray()
+        : snapshot.record.Roles;
+    } else if (data.Roles) {
+      roles = data.Roles;
+    }
+    data.Roles = minimizeModel(roles);
     return data;
   },
 });

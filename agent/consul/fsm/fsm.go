@@ -1,4 +1,4 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2024, 2026
 // SPDX-License-Identifier: BUSL-1.1
 
 package fsm
@@ -430,6 +430,11 @@ func (c *FSM) registerStreamSnapshotHandlers() {
 
 	err = c.deps.Publisher.RegisterHandler(state.EventTopicIPRateLimit, func(req stream.SubscribeRequest, buf stream.SnapshotAppender) (uint64, error) {
 		return c.State().IPRateLimiterSnapshot(req, buf)
+	}, true)
+	panicIfErr(err)
+
+	err = c.deps.Publisher.RegisterHandler(state.EventTopicGlobalRateLimit, func(req stream.SubscribeRequest, buf stream.SnapshotAppender) (uint64, error) {
+		return c.State().GlobalRateLimiterSnapshot(req, buf)
 	}, true)
 	panicIfErr(err)
 

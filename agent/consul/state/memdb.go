@@ -1,4 +1,4 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2024, 2026
 // SPDX-License-Identifier: BUSL-1.1
 
 package state
@@ -211,6 +211,7 @@ var (
 	EventTopicInlineCertificate     = pbsubscribe.Topic_InlineCertificate
 	EventTopicBoundAPIGateway       = pbsubscribe.Topic_BoundAPIGateway
 	EventTopicIPRateLimit           = pbsubscribe.Topic_IPRateLimit
+	EventTopicGlobalRateLimit       = pbsubscribe.Topic_GlobalRateLimit
 	EventTopicSamenessGroup         = pbsubscribe.Topic_SamenessGroup
 	EventTopicJWTProvider           = pbsubscribe.Topic_JWTProvider
 	EventTopicExportedServices      = pbsubscribe.Topic_ExportedServices

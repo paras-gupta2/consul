@@ -7,17 +7,16 @@
   @name={{this.routeName}}
 as |route|>
   <DataLoader
-  @src={{uri 'settings://consul:client'}}
-  as |loader|>
+  @src={{uri 'settings://consul:client'}}>
 
-    <BlockSlot @name="error">
+    <:error as |loader|>
       <AppError
         @error={{loader.error}}
         @login={{route.model.app.login.open}}
       />
-    </BlockSlot>
+    </:error>
 
-    <BlockSlot @name="loaded">
+    <:loaded as |loader|>
 {{#let
   (or loader.data (hash
       blocking=true
@@ -25,12 +24,12 @@ as |route|>
   )
 as |item|}}
   <AppView>
-    <BlockSlot @name="header">
+    <:header>
       <h1>
         <route.Title @title="Settings" />
       </h1>
-    </BlockSlot>
-    <BlockSlot @name="content">
+    </:header>
+    <:content>
       <Hds::Alert @type="inline" class='mb-3 mt-2' as |A|>
         <A.Title>Local Storage</A.Title>
         <A.Description>These settings are immediately saved to local storage and persisted through browser usage.</A.Description>
@@ -70,7 +69,7 @@ as |item|}}
           <DataSink
             @data={{item}}
             @sink='settings://consul:client'
-            @onchange={{action (fn disclosure.close)}}
+            @onchange={{action disclosure.close}}
           />
         </disclosure.Details>
         <fieldset data-test-blocking-queries>
@@ -81,7 +80,7 @@ as |item|}}
               <input
                 {{on 'change' (queue
                   (set item 'blocking' (not item.blocking))
-                  (fn disclosure.open)
+                  disclosure.open
                 )}}
                 type="checkbox"
                 name="client[blocking]"
@@ -94,9 +93,9 @@ as |item|}}
       </Disclosure>
       {{/if}}
       </form>
-    </BlockSlot>
+    </:content>
   </AppView>
 {{/let}}
-  </BlockSlot>
+  </:loaded>
 </DataLoader>
 </Route>

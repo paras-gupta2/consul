@@ -1,5 +1,5 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
@@ -7,12 +7,11 @@ import Component from '@ember/component';
 import { get, set, computed } from '@ember/object';
 import { alias } from '@ember/object/computed';
 import { inject as service } from '@ember/service';
+import { A } from '@ember/array';
 
 import { task } from 'ember-concurrency';
 
-import Slotted from 'block-slots';
-
-export default Component.extend(Slotted, {
+export default Component.extend({
   onchange: function () {},
   tagName: '',
 
@@ -29,14 +28,17 @@ export default Component.extend(Slotted, {
   init: function () {
     this._super(...arguments);
     this._listeners = this.dom.listeners();
-    set(this, 'form', this.formContainer.form(this.type));
-    this.form.clear({ Datacenter: this.dc, Namespace: this.nspace });
+    const form = this.formContainer.form(this.type);
+    setTimeout(() => {
+      form.clear({ Datacenter: this.dc, Namespace: this.nspace });
+    }, 0);
+    set(this, 'form', form);
   },
   willDestroyElement: function () {
     this._super(...arguments);
     this._listeners.remove();
   },
-  options: computed('selectedOptions.[]', 'allOptions.[]', {
+  options: computed('selectedOptions.[]', 'allOptions.[]', '_options', {
     get() {
       if (this._options !== undefined) {
         return this._options;
@@ -45,17 +47,16 @@ export default Component.extend(Slotted, {
       // losing reference as its just to figure out the diff
       let options = this.allOptions || [];
       const items = this.selectedOptions || [];
-      if (get(items, 'length') > 0) {
+      if (items.length > 0) {
         // filter out any items from the available options that have already been
         // selected/added
         // TODO: find a proper ember-data diff
-        options = options.filter((item) => !items.findBy('ID', get(item, 'ID')));
+        options = options.filter((item) => !items.findBy('ID', item.ID));
       }
       return options;
     },
     set(_key, value) {
-      this._options = value;
-      return this._options;
+      return this.set('_options', value);
     },
   }),
   save: task(function* (item, items, success = function () {}) {
@@ -78,6 +79,12 @@ export default Component.extend(Slotted, {
     }
   }),
   actions: {
+    setAllOptions: function (data) {
+      if (this.isDestroyed || this.isDestroying) {
+        return;
+      }
+      this.set('allOptions', data);
+    },
     reset: function () {
       this.form.clear({ Datacenter: this.dc, Namespace: this.nspace, Partition: this.partition });
     },
@@ -95,7 +102,14 @@ export default Component.extend(Slotted, {
     },
     change: function (e, value, item) {
       const event = this.dom.normalizeEvent(...arguments);
-      const items = value;
+      // FIX: Ensure items is initialized
+      let items = value;
+      if (!items) {
+        items = A(); // Create a new Ember Array
+        // Update the component's 'items' property so the UI updates
+        this.set('items', items);
+      }
+
       switch (event.target.name) {
         case 'items[]':
           set(item, 'CreateTime', new Date().getTime());

@@ -1,5 +1,5 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
@@ -37,6 +37,6 @@ module('Unit | Utility | routing/walk', function () {
         },
       },
     ]);
-    assert.equal(route.callCount, 3);
+    assert.strictEqual(route.callCount, 3);
   });
 });

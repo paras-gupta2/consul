@@ -1,10 +1,9 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
 import Serializer from './application';
-import { get } from '@ember/object';
 import { PRIMARY_KEY, SLUG_KEY } from 'consul-ui/models/token';
 import WithPolicies from 'consul-ui/mixins/policy/as-many';
 import WithRoles from 'consul-ui/mixins/role/as-many';
@@ -51,10 +50,10 @@ export default class TokenSerializer extends Serializer.extend(WithPolicies, Wit
           }
           // Convert an old style update response to a new style
           if (typeof body['ID'] !== 'undefined') {
-            const item = this.store.peekAll('token').findBy('SecretID', body['ID']);
+            const item = this.store.peekAll('token').find((token) => token.SecretID === body['ID']);
             if (item) {
               body['SecretID'] = body['ID'];
-              body['AccessorID'] = get(item, 'AccessorID');
+              body['AccessorID'] = item.AccessorID;
             }
           }
           return cb(headers, body);

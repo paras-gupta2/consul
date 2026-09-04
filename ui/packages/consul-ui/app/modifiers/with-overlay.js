@@ -1,5 +1,5 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
@@ -10,14 +10,15 @@ import tippy, { followCursor } from 'tippy.js';
  * Overlay modifier using Tippy.js
  * https://atomiks.github.io/tippyjs
  *
- * {{tooltip 'Text' options=(hash )}}
+ * {{with-overlay 'Text' options=(hash )}}
  */
 export default modifier(($element, [content], hash = {}) => {
-  const options = hash.options || {};
+  const userOptions = hash.options || {};
+  const options = { ...userOptions };
 
   let $anchor = $element;
 
-  // make it easy to specify the modified element as the actual tooltip
+  // make it easy to specify the modified element as the actual overlay trigger
   if (typeof options.triggerTarget === 'string') {
     const $el = $anchor;
     switch (options.triggerTarget) {
@@ -29,9 +30,9 @@ export default modifier(($element, [content], hash = {}) => {
     }
     content = $anchor.cloneNode(true);
     $el.remove();
-    hash.options.triggerTarget = undefined;
+    delete options.triggerTarget;
   }
-  // {{tooltip}} will just use the HTML content
+  // with-overlay without content will use the element HTML content
   if (typeof content === 'undefined') {
     content = $anchor.innerHTML;
     $anchor.innerHTML = '';

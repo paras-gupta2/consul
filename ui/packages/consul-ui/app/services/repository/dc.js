@@ -1,9 +1,8 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
-import Error from '@ember/error';
 import { inject as service } from '@ember/service';
 import RepositoryService from 'consul-ui/services/repository';
 import dataSource from 'consul-ui/decorators/data-source';
@@ -201,7 +200,7 @@ export default class DcService extends RepositoryService {
   @dataSource('/:partition/:ns/:dc/datacenter-cache/:name')
   async find(params) {
     const items = this.store.peekAll('dc');
-    const item = items.findBy('Name', params.name);
+    const item = items.find((dc) => dc.Name === params.name);
     if (typeof item === 'undefined') {
       // TODO: We should use a HTTPError error here and remove all occurances of
       // the custom shaped ember-data error throughout the app

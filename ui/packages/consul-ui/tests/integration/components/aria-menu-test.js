@@ -1,5 +1,5 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
@@ -15,7 +15,7 @@ module('Integration | Component | aria-menu', function (hooks) {
     // Set any properties with this.set('myProperty', 'value');
     // Handle any actions with this.set('myAction', function(val) { ... });
 
-    await render(hbs`{{aria-menu}}`);
+    await render(hbs`<AriaMenu/>`);
 
     assert.equal(this.element.textContent.trim(), '');
 

@@ -7,16 +7,15 @@
   class="consul-upstream-list"
   ...attributes
   @items={{@items}}
-  @linkable="linkable upstream"
-as |item index|>
-  <BlockSlot @name="header">
+  @linkable="linkable upstream">
+  <:header as |item index|>
 {{#if (gt item.InstanceCount 0)}}
     <dl class={{item.MeshStatus}}>
       <dt>
         Health
       </dt>
       <dd
-        {{tooltip}}
+        {{hds-tooltip options=(detached-tooltip-options)}}
       >
           {{#if (eq 'critical' item.MeshStatus)}}
             At least one health check on one instance is failing.
@@ -53,8 +52,8 @@ as |item index|>
       {{item.Name}}
     </p>
 {{/if}}
-  </BlockSlot>
-  <BlockSlot @name="details">
+  </:header>
+  <:details as |item index|>
     <Consul::Bucket::List
       @item={{item}}
       @nspace={{@nspace}}
@@ -74,5 +73,5 @@ as |item index|>
       </dd>
     </dl>
 {{/each}}
-  </BlockSlot>
+  </:details>
 </ListCollection>

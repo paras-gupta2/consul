@@ -1,4 +1,4 @@
-# Copyright (c) HashiCorp, Inc.
+# Copyright IBM Corp. 2024, 2026
 # SPDX-License-Identifier: BUSL-1.1
 
 schema = "1"
@@ -7,7 +7,7 @@ project "consul" {
   team = "consul core"
   slack {
     # feed-consul-ci
-    notification_channel = "C9KPKPKRN"
+    notification_channel = "C09KX8B2KC6"
   }
   github {
     organization = "hashicorp"

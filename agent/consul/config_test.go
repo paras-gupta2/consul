@@ -1,4 +1,4 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2024, 2026
 // SPDX-License-Identifier: BUSL-1.1
 
 package consul
@@ -132,4 +132,10 @@ func fuzzNonIgnoredFields(value interface{}, ignoredFields []string) []string {
 	}
 
 	return fuzzed
+}
+
+func TestDefaultConfig_FederationStateAntiEntropySyncInterval(t *testing.T) {
+	cfg := DefaultConfig()
+	require.NotNil(t, cfg)
+	require.Equal(t, 5*time.Second, cfg.FederationStateAntiEntropySyncInterval)
 }

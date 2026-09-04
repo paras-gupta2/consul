@@ -13,7 +13,16 @@
 {{#if (gt @item.Definition.Match.HTTP.Methods.length 0) }}
     <ul class="match-methods">
       {{#each @item.Definition.Match.HTTP.Methods as |item|}}
-        <li>{{item}}</li>
+        <li>
+          <span class="route-card__method-badge">
+            <Hds::Badge
+              @text={{item}}
+              @color="neutral"
+              @type="filled"
+              @size="small"
+            />
+          </span>
+        </li>
       {{/each}}
     </ul>
 {{/if}}
@@ -28,7 +37,8 @@
   </header>
 {{#if (gt @item.Definition.Match.HTTP.Header.length 0) }}
   <section class="match-headers">
-    <header {{tooltip 'Header'}}>
+    {{!-- template-lint-disable no-duplicate-landmark-elements --}}
+    <header {{hds-tooltip 'Header' options=(detached-tooltip-options)}}>
       <h4>Headers</h4>
     </header>
     <dl>
@@ -45,7 +55,8 @@
 {{/if}}
 {{#if (gt @item.Definition.Match.HTTP.QueryParam.length 0) }}
   <section class="match-queryparams">
-    <header {{tooltip 'Query Params'}}>
+    {{!-- template-lint-disable no-duplicate-landmark-elements --}}
+    <header {{hds-tooltip 'Query Params' options=(detached-tooltip-options)}}>
       <h4>Query Params</h4>
     </header>
     <dl>

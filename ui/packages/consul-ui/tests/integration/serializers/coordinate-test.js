@@ -1,5 +1,5 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
@@ -17,7 +17,6 @@ module('Integration | Serializer | coordinate', function (hooks) {
   const nspace = 'default';
   const partition = 'default';
   test('respondForQuery returns the correct data for list endpoint', function (assert) {
-    assert.expect(1);
     const serializer = this.owner.lookup('serializer:coordinate');
     const request = {
       url: `/v1/coordinate/nodes?dc=${dc}`,

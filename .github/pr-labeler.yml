@@ -1,4 +1,4 @@
-# Copyright (c) HashiCorp, Inc.
+# Copyright IBM Corp. 2024, 2026
 # SPDX-License-Identifier: BUSL-1.1
 
 pr/dependencies:
@@ -39,12 +39,6 @@ theme/connect:
     - any-glob-to-any-file:
       - connect/**/*
       - agent/connect/**/*
-# theme/consul-nomad:
-theme/consul-terraform-sync:
-  - changed-files:
-    - any-glob-to-any-file:
-      - website/content/docs/nia/**/*
-      - website/content/docs/integrate/nia*
 # theme/consul-vault:
 theme/contributing:
   - changed-files:
@@ -102,7 +96,3 @@ type/ci:
     - any-glob-to-any-file:
       - .github/workflows/*
 # type/crash:
-type/docs:
-  - changed-files:
-    - any-glob-to-any-file:
-      - website/**/*

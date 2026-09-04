@@ -1,4 +1,4 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2024, 2026
 // SPDX-License-Identifier: BUSL-1.1
 
 package config
@@ -17,7 +17,6 @@ import (
 	"github.com/hashicorp/consul/agent/cache"
 	"github.com/hashicorp/consul/agent/consul"
 	consulrate "github.com/hashicorp/consul/agent/consul/rate"
-	hcpconfig "github.com/hashicorp/consul/agent/hcp/config"
 	"github.com/hashicorp/consul/agent/structs"
 	"github.com/hashicorp/consul/agent/token"
 	"github.com/hashicorp/consul/api"
@@ -77,6 +76,11 @@ type RuntimeConfig struct {
 	ConsulRaftHeartbeatTimeout       time.Duration
 	ConsulRaftLeaderLeaseTimeout     time.Duration
 	ConsulServerHealthInterval       time.Duration
+
+	// FederationStateAntiEntropySyncInterval controls the minimum interval between
+	// federation state anti-entropy sync operations on the leader.
+	// hcl: federation_state_anti_entropy_sync_interval = "duration"
+	FederationStateAntiEntropySyncInterval time.Duration
 
 	// ACLsEnabled is used to determine whether ACLs should be enabled
 	//
@@ -161,11 +165,6 @@ type RuntimeConfig struct {
 	//
 	// hcl: autopilot { upgrade_version_tag = string }
 	AutopilotUpgradeVersionTag string
-
-	// Cloud contains configuration for agents to connect to HCP.
-	//
-	// hcl: cloud { ... }
-	Cloud hcpconfig.CloudConfig
 
 	// DNSAllowStale is used to enable lookups with stale
 	// data. This gives horizontal read scalability since
@@ -526,6 +525,12 @@ type RuntimeConfig struct {
 	// datacenters should exclusively traverse mesh gateways.
 	ConnectMeshGatewayWANFederationEnabled bool
 
+	// ConnectVirtualIPCIDRv4 defines the IPv4 CIDR block used for automatic virtual IPs.
+	ConnectVirtualIPCIDRv4 string
+
+	// ConnectVirtualIPCIDRv6 defines the IPv6 CIDR block used for automatic virtual IPs.
+	ConnectVirtualIPCIDRv6 string
+
 	// ConnectTestCALeafRootChangeSpread is used to control how long the CA leaf
 	// cache with spread CSRs over when a root change occurs. For now we don't
 	// expose this in public config intentionally but could later with a rename.
@@ -564,6 +569,12 @@ type RuntimeConfig struct {
 	// hcl: data_dir = string
 	// flag: -data-dir string
 	DataDir string
+
+	// TokenDirs is the path to the directory where the token is stored.
+	//
+	// hcl: token_dirs = string
+	// flag: -token-dirs string
+	TokenDirs string
 
 	// DefaultIntentionPolicy is used to define a default intention action for all
 	// sources and destinations. Possible values are "allow", "deny", or "" (blank).
@@ -797,6 +808,14 @@ type RuntimeConfig struct {
 	// hcl: limits{ http_max_conns_per_client = 200 }
 	HTTPMaxConnsPerClient int
 
+	// GRPCMaxConnsPerClient limits the number of concurrent TCP connections the
+	// external gRPC server (the "grpc" and "grpc_tls" ports) will accept from any
+	// single source IP address. This bounds resource consumption from clients
+	// that open connections but never complete the gRPC/TLS handshake.
+	//
+	// hcl: limits{ grpc_max_conns_per_client = 100 }
+	GRPCMaxConnsPerClient int
+
 	// HTTPMaxHeaderBytes controls the maximum number of bytes the
 	// server will read parsing the request header's keys and
 	// values, including the request line. It does not limit the
@@ -804,6 +823,38 @@ type RuntimeConfig struct {
 	//
 	// If zero, or negative, http.DefaultMaxHeaderBytes is used.
 	HTTPMaxHeaderBytes int
+
+	// HTTPReadTimeout is the maximum duration for reading the entire request,
+	// including the body. This timeout prevents slow request body attacks.
+	// A zero or negative value means there will be no timeout.
+	//
+	// Default: 15m, Minimum: 1s
+	// hcl: http_config { read_timeout = "30s" }
+	HTTPReadTimeout time.Duration
+
+	// HTTPReadHeaderTimeout is the amount of time allowed to read request headers.
+	// The connection's read deadline is reset after reading the headers and the
+	// Handler can decide what is considered too slow for the body.
+	// This timeout prevents slowloris attacks on header parsing.
+	//
+	// Default: 10s, Minimum: 1s
+	// hcl: http_config { read_header_timeout = "10s" }
+	HTTPReadHeaderTimeout time.Duration
+
+	// HTTPWriteTimeout is the maximum duration before timing out writes of the response.
+	// This timeout prevents slow response drain attacks.
+	// A zero or negative value means there will be no timeout.
+	//
+	// Default: 15m, Minimum: 1s
+	// hcl: http_config { write_timeout = "30s" }
+	HTTPWriteTimeout time.Duration
+
+	// HTTPIdleTimeout is the maximum amount of time to wait for the next request
+	// when keep-alives are enabled. This timeout prevents connection exhaustion attacks.
+	//
+	// Default: 120s, Minimum: 10s
+	// hcl: http_config { idle_timeout = "120s" }
+	HTTPIdleTimeout time.Duration
 
 	// HTTPSHandshakeTimeout is the time allowed for HTTPS client to complete the
 	// TLS handshake and send first bytes of the request.
@@ -1580,7 +1631,6 @@ type UIConfig struct {
 	MetricsProviderOptionsJSON string
 	MetricsProxy               UIMetricsProxy
 	DashboardURLTemplates      map[string]string
-	HCPEnabled                 bool
 }
 
 type UIMetricsProxy struct {
@@ -1801,14 +1851,6 @@ func (c *RuntimeConfig) StructLocality() *structs.Locality {
 // time.Duration values are formatted to improve readability.
 func (c *RuntimeConfig) Sanitized() map[string]interface{} {
 	return sanitize("rt", reflect.ValueOf(c)).Interface().(map[string]interface{})
-}
-
-// IsCloudEnabled returns true if a cloud.resource_id is set and the server mode is enabled
-func (c *RuntimeConfig) IsCloudEnabled() bool {
-	if c == nil {
-		return false
-	}
-	return c.ServerMode && c.Cloud.ResourceID != ""
 }
 
 // isSecret determines whether a field name represents a field which

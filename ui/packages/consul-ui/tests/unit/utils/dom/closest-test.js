@@ -1,5 +1,5 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
@@ -14,13 +14,13 @@ module('Unit | Utility | dom/closest', function () {
     };
     const expected = 'selector';
     const actual = domClosest(expected, el);
-    assert.equal(actual, expected);
+    assert.strictEqual(actual, expected);
     assert.ok(el.closest.calledOnce);
   });
   test("it fails silently/null if calling closest doesn't work/exist", function (assert) {
     const expected = null;
     const actual = domClosest('selector', {});
-    assert.equal(actual, expected);
+    assert.strictEqual(actual, expected);
   });
   skip('polyfill closest');
 });

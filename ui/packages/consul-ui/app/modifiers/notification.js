@@ -1,11 +1,12 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
 import Modifier from 'ember-modifier';
 import { inject as service } from '@ember/service';
 import { registerDestructor } from '@ember/destroyable';
+import { scheduleOnce } from '@ember/runloop';
 
 function cleanup(instance) {
   if (instance && instance?.named?.sticky) {
@@ -27,7 +28,11 @@ export default class NotificationModifier extends Modifier {
     };
     options.dom = element.outerHTML;
     element.remove();
-    this.notify.clearMessages();
+    const addMessage = () => {
+      // clear + add after render so we don't mutate a value already consumed in current render
+      this.notify.clearMessages();
+      this.notify.add(options);
+    };
     if (typeof options.after === 'function') {
       Promise.resolve()
         .then((_) => options.after())
@@ -36,11 +41,9 @@ export default class NotificationModifier extends Modifier {
             throw e;
           }
         })
-        .then((_) => {
-          this.notify.add(options);
-        });
+        .then(() => scheduleOnce('afterRender', this, addMessage));
     } else {
-      this.notify.add(options);
+      scheduleOnce('afterRender', this, addMessage);
     }
 
     registerDestructor(this, cleanup);

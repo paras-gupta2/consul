@@ -1,5 +1,5 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
@@ -16,6 +16,17 @@ export default class BaseRoute extends Route {
   @service('repository/permission') permissions;
   @service('router') router;
   @service('routlet') routlet;
+
+  _optionsForQueryParam(qp) {
+    const result = super._optionsForQueryParam(qp);
+    // Ember 4.x compatibility: ensure result is always an object
+    // In Ember 3.x, string shorthand was handled internally
+    // In Ember 4.x, we need to convert strings to objects ourselves
+    if (typeof result === 'string') {
+      return { as: result };
+    }
+    return result;
+  }
 
   _setRouteName() {
     super._setRouteName(...arguments);
@@ -130,7 +141,7 @@ export default class BaseRoute extends Route {
     if (typeof obj !== 'undefined' && !Array.isArray(obj) && typeof obj !== 'string') {
       params = Object.values(obj);
     }
-    return super.replaceWith(routeName, ...params);
+    return this.router.replaceWith(routeName, ...params);
   }
 
   @action

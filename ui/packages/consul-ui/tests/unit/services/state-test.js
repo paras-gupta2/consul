@@ -1,5 +1,5 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
@@ -13,8 +13,8 @@ module('Unit | Service | state', function (hooks) {
   test('.state creates a state matchable object', function (assert) {
     const service = this.owner.lookup('service:state');
     const actual = service.state((id) => id === 'idle');
-    assert.equal(typeof actual, 'object');
-    assert.equal(typeof actual.matches, 'function');
+    assert.strictEqual(typeof actual, 'object');
+    assert.strictEqual(typeof actual.matches, 'function');
   });
   test('.matches performs a match correctly', function (assert) {
     const service = this.owner.lookup('service:state');

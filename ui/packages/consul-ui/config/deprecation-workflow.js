@@ -1,5 +1,5 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
@@ -7,18 +7,7 @@
 self.deprecationWorkflow = self.deprecationWorkflow || {};
 self.deprecationWorkflow.config = {
   workflow: [
-    { handler: 'silence', matchId: 'ember-cli-page-object.string-properties-on-definition' },
-    { handler: 'silence', matchId: 'ember-sinon-qunit.test' },
-    { handler: 'silence', matchId: 'ember-qunit.deprecate-legacy-apis' },
-    { handler: 'silence', matchId: 'ember-can.can-service' },
-    { handler: 'silence', matchId: 'ember-data:model.toJSON' },
-    { handler: 'silence', matchId: 'ember-cli-page-object.is-property' },
-    { handler: 'silence', matchId: 'ember-views.partial' },
-    { handler: 'silence', matchId: 'ember-component.send-action' },
-    { handler: 'silence', matchId: 'ember-cli-page-object.multiple' },
-    { handler: 'silence', matchId: 'computed-property.override' },
-    { handler: 'silence', matchId: 'autotracking.mutation-after-consumption' },
-    { handler: 'silence', matchId: 'ember-data:legacy-test-helper-support' },
-    { handler: 'silence', matchId: 'ember-data:Model.data' },
+    { handler: 'silence', matchId: 'ember-data:deprecate-model-reopenclass' },
+    { handler: 'silence', matchId: 'template-action' },
   ],
 };

@@ -1,4 +1,4 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2024, 2026
 // SPDX-License-Identifier: BUSL-1.1
 
 package state
@@ -12,6 +12,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/hashicorp/go-memdb"
+
 	"github.com/hashicorp/consul/acl"
 	"github.com/hashicorp/consul/agent/configentry"
 	"github.com/hashicorp/consul/agent/netutil"
@@ -21,7 +23,6 @@ import (
 	"github.com/hashicorp/consul/lib/maps"
 	"github.com/hashicorp/consul/lib/stringslice"
 	"github.com/hashicorp/consul/types"
-	"github.com/hashicorp/go-memdb"
 )
 
 const (
@@ -42,26 +43,6 @@ const (
 )
 
 var (
-	// startingVirtualIP is the start of the virtual IP range we assign to services.
-	// The effective CIDR range is startingVirtualIP to (startingVirtualIP + virtualIPMaxOffset).
-	startingVirtualIP = net.IP{240, 0, 0, 0}
-
-	virtualIPMaxOffset = net.IP{15, 255, 255, 254}
-
-	startingVirtualIPv6 = net.IP{
-		0x20, 0x00, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00,
-	}
-
-	virtualIPv6MaxOffset = net.IP{
-		0x1F, 0xFF, 0xFF, 0xFF,
-		0xFF, 0xFF, 0xFF, 0xFF,
-		0xFF, 0xFF, 0xFF, 0xFF,
-		0xFF, 0xFF, 0xFF, 0xFF,
-	}
-
 	ErrNodeNotFound = errors.New("node not found")
 )
 
@@ -942,6 +923,9 @@ func ensureServiceTxn(tx WriteTxn, idx uint64, node string, preserveIndexes bool
 				svc.TaggedAddresses = make(map[string]structs.ServiceAddress)
 			}
 			svc.TaggedAddresses[structs.TaggedAddressVirtualIP] = structs.ServiceAddress{Address: vip, Port: svc.Port}
+			if err := assignServicePortVirtualIPs(tx, idx, sn, svc); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -1014,6 +998,7 @@ func ensureServiceTxn(tx WriteTxn, idx uint64, node string, preserveIndexes bool
 
 // assignServiceVirtualIP assigns a virtual IP to the target service and updates
 // the global virtual IP counter if necessary.
+// It is also used at port+service level virtual ip assignment
 func assignServiceVirtualIP(tx WriteTxn, idx uint64, psn structs.PeeredServiceName) (string, error) {
 	serviceVIP, err := tx.First(tableServiceVirtualIPs, indexID, psn)
 	if err != nil {
@@ -1074,9 +1059,10 @@ func assignServiceVirtualIP(tx WriteTxn, idx uint64, psn structs.PeeredServiceNa
 				break
 			}
 		}
-		maxIPOffset := virtualIPMaxOffset
-		if p := net.ParseIP(newEntry.IP.String()); p == nil || p.To4() == nil {
-			maxIPOffset = virtualIPv6MaxOffset
+		cfg := currentVirtualIPConfig()
+		maxIPOffset := cfg.maxOffsetFor(newEntry.IP)
+		if maxIPOffset == nil {
+			return "", fmt.Errorf("failed to determine max virtual IP offset for %q", newEntry.IP.String())
 		}
 		// Out of virtual IPs, fail registration.
 		if newEntry.IP.Equal(maxIPOffset) {
@@ -1232,6 +1218,7 @@ func updateVirtualIPMaxIndexes(txn WriteTxn, idx uint64, partition, peerName str
 func addIPOffset(b net.IP) (net.IP, error) {
 	var vip net.IP
 	var err error
+	cfg := currentVirtualIPConfig()
 
 	ds, err := netutil.IsDualStack(nil, true)
 	if err != nil {
@@ -1239,9 +1226,9 @@ func addIPOffset(b net.IP) (net.IP, error) {
 	}
 
 	if ds {
-		vip, err = addIPv6Offset(startingVirtualIPv6, b)
+		vip, err = addIPv6Offset(cfg.startingIPv6, b)
 	} else {
-		vip, err = addIPv4Offset(startingVirtualIP, b)
+		vip, err = addIPv4Offset(cfg.startingIPv4, b)
 	}
 	return vip, err
 }
@@ -2275,6 +2262,9 @@ func freeServiceVirtualIP(
 	newEntry := FreeVirtualIP{IP: serviceVIP.(ServiceVirtualIP).IP}
 	if err := tx.Insert(tableFreeVirtualIPs, newEntry); err != nil {
 		return fmt.Errorf("failed updating freed virtual IP table: %v", err)
+	}
+	if err := freeServicePortVirtualIPs(tx, q); err != nil {
+		return err
 	}
 
 	if err := updateVirtualIPMaxIndexes(tx, idx, psn.ServiceName.PartitionOrDefault(), psn.Peer); err != nil {

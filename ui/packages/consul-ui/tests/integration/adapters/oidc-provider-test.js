@@ -1,5 +1,5 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
@@ -27,7 +27,7 @@ module('Integration | Adapter | oidc-provider', function (hooks) {
         dc: dc,
         ns: nspace,
       });
-      assert.equal(`${actual.method} ${actual.url}`, expected);
+      assert.strictEqual(`${actual.method} ${actual.url}`, expected);
     });
     test('requestForQueryRecord returns the correct url/method', function (assert) {
       const adapter = this.owner.lookup('adapter:oidc-provider');
@@ -44,7 +44,7 @@ module('Integration | Adapter | oidc-provider', function (hooks) {
         })
         .split('\n')
         .shift();
-      assert.equal(actual, expected);
+      assert.strictEqual(actual, expected);
     });
     test("requestForQueryRecord throws if you don't specify an id", function (assert) {
       const adapter = this.owner.lookup('adapter:oidc-provider');
@@ -73,7 +73,7 @@ module('Integration | Adapter | oidc-provider', function (hooks) {
         })
         .split('\n')
         .shift();
-      assert.equal(actual, expected);
+      assert.strictEqual(actual, expected);
     });
     test('requestForLogout returns the correct url/method', function (assert) {
       const adapter = this.owner.lookup('adapter:oidc-provider');
@@ -86,7 +86,7 @@ module('Integration | Adapter | oidc-provider', function (hooks) {
         })
         .split('\n')
         .shift();
-      assert.equal(actual, expected);
+      assert.strictEqual(actual, expected);
     });
   });
 });

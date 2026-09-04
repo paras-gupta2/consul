@@ -1,12 +1,11 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
 import Fragment from 'ember-data-model-fragments/fragment';
 import { array } from 'ember-data-model-fragments/attributes';
 import { attr } from '@ember-data/model';
-import { computed } from '@ember/object';
 import { replace, nullValue } from 'consul-ui/decorators/replace';
 
 export const schema = {
@@ -36,12 +35,10 @@ export default class HealthCheck extends Fragment {
   // essentially this is a lazy MeshHealthCheckModel
   @attr('boolean') Exposed;
 
-  @computed('ServiceID')
   get Kind() {
     return this.ServiceID === '' ? 'node' : 'service';
   }
 
-  @computed('Type')
   get Exposable() {
     return ['http', 'grpc'].includes(this.Type);
   }

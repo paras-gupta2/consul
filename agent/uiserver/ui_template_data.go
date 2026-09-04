@@ -1,4 +1,4 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2024, 2026
 // SPDX-License-Identifier: BUSL-1.1
 
 package uiserver
@@ -22,7 +22,6 @@ func uiTemplateDataFromConfig(cfg *config.RuntimeConfig) (map[string]interface{}
 		// browser.
 		"metrics_proxy_enabled":   cfg.UIConfig.MetricsProxy.BaseURL != "",
 		"dashboard_url_templates": cfg.UIConfig.DashboardURLTemplates,
-		"hcp_enabled":             cfg.UIConfig.HCPEnabled,
 	}
 
 	// Only set this if there is some actual JSON or we'll cause a JSON
@@ -34,7 +33,6 @@ func uiTemplateDataFromConfig(cfg *config.RuntimeConfig) (map[string]interface{}
 	d := map[string]interface{}{
 		"ContentPath":       cfg.UIConfig.ContentPath,
 		"ACLsEnabled":       cfg.ACLsEnabled,
-		"HCPEnabled":        cfg.UIConfig.HCPEnabled,
 		"UIConfig":          uiCfg,
 		"LocalDatacenter":   cfg.Datacenter,
 		"PrimaryDatacenter": cfg.PrimaryDatacenter,

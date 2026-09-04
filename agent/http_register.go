@@ -1,4 +1,4 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2024, 2026
 // SPDX-License-Identifier: BUSL-1.1
 
 package agent
@@ -87,6 +87,7 @@ func init() {
 	registerEndpoint("/v1/internal/federation-state/", []string{"GET"}, (*HTTPHandlers).FederationStateGet)
 	registerEndpoint("/v1/discovery-chain/", []string{"GET", "POST"}, (*HTTPHandlers).DiscoveryChainRead)
 	registerEndpoint("/v1/exported-services", []string{"GET"}, (*HTTPHandlers).ExportedServices)
+	registerEndpoint("/v1/imported-services", []string{"GET"}, (*HTTPHandlers).ImportedServices)
 	registerEndpoint("/v1/event/fire/", []string{"PUT"}, (*HTTPHandlers).EventFire)
 	registerEndpoint("/v1/event/list", []string{"GET"}, (*HTTPHandlers).EventList)
 	registerEndpoint("/v1/health/node/", []string{"GET"}, (*HTTPHandlers).HealthNodeChecks)
@@ -106,6 +107,7 @@ func init() {
 	registerEndpoint("/v1/internal/ui/service-topology/", []string{"GET"}, (*HTTPHandlers).UIServiceTopology)
 	registerEndpoint("/v1/internal/acl/authorize", []string{"POST"}, (*HTTPHandlers).ACLAuthorize)
 	registerEndpoint("/v1/internal/service-virtual-ip", []string{"PUT"}, (*HTTPHandlers).AssignManualServiceVIPs)
+	registerEndpoint("/v1/internal/rpc/methods", []string{"GET"}, (*HTTPHandlers).InternalRPCMethods)
 	registerEndpoint("/v1/kv/", []string{"GET", "PUT", "DELETE"}, (*HTTPHandlers).KVSEndpoint)
 	registerEndpoint("/v1/operator/raft/configuration", []string{"GET"}, (*HTTPHandlers).OperatorRaftConfiguration)
 	registerEndpoint("/v1/operator/raft/transfer-leader", []string{"POST"}, (*HTTPHandlers).OperatorRaftTransferLeader)

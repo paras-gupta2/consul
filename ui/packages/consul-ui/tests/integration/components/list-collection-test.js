@@ -1,5 +1,5 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
@@ -42,15 +42,15 @@ module('Integration | Component | list collection', function (hooks) {
     document.body.appendChild(footer);
 
     await render(hbs`
-      <ListCollection @items={{this.items}} as |item index Actions|>
-        <BlockSlot @name="header">{{item.name}}</BlockSlot>
-        <BlockSlot @name="actions" as |Actions|>
+      <ListCollection @items={{this.items}}>
+        <:header as |item|>{{item.name}}</:header>
+        <:actions as |item index Actions|>
           <Actions as |Action|>
             <Action>
-              <BlockSlot @name="label">Action</BlockSlot>
+              <:label>Action</:label>
             </Action>
           </Actions>
-        </BlockSlot>
+        </:actions>
       </ListCollection>
     `);
 
@@ -60,7 +60,7 @@ module('Integration | Component | list collection', function (hooks) {
     // Test checking - should set z-index and handle footer collision
     checkbox.checked = true;
     await triggerEvent(checkbox, 'change');
-    assert.equal(row.style.zIndex, '1', 'Row should have z-index 1 when checked');
+    assert.strictEqual(row.style.zIndex, '1', 'Row should have z-index 1 when checked');
 
     // Test unchecking - should clear z-index
     checkbox.checked = false;

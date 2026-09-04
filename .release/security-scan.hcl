@@ -1,4 +1,4 @@
-# Copyright (c) HashiCorp, Inc.
+# Copyright IBM Corp. 2024, 2026
 # SPDX-License-Identifier: BUSL-1.1
 
 # These scan results are run as part of CRT workflows.
@@ -38,7 +38,14 @@ container {
   # periodically cleaned up to remove items that are no longer found by the scanner.
   triage {
     suppress {
-      vulnerabilities = []
+      vulnerabilities = [
+        "CVE-2025-30258", //Alpine Linux's Security Issue Tracker in gnupg@2.4.9-r0:
+        // 2.4.x is the stable version of gnupg and the latest is 2.4.9 which is not affected by the vulnerability 
+        // according to NVD - CVE-2025-30258, but our scanner is still flagging it. Hence suppressing it for now.
+        // Impact: gpg is only used in official docker build target but is uninstalled 
+        // just after verifying the signature of the Consul binary. This CVE is not exploitable in this context.
+        "GO-2026-5932", // x/crypto/openpgp: no fixed version exists upstream; Consul imports no openpgp package.
+      ]
 
       paths = [
         "internal/tools/proto-gen-rpc-glue/e2e/consul/*",
@@ -46,6 +53,14 @@ container {
         "test/integration/consul-container/*",
         "testing/deployer/*",
         "test-integ/*",
+        // The OSV scanner will trip on several packages that are included in the
+        // the UBI images. This is due to RHEL using the same base version in the
+        // package name for the life of the distro regardless of whether or not
+        // that version has been patched for security. Rather than enumate ever
+        // single CVE that the OSV scanner will find (several tens) we'll ignore
+        // the base UBI packages.
+        "usr/lib/sysimage/rpm/*",
+        "var/lib/rpm/*",
       ]
     }
   }
@@ -79,7 +94,9 @@ binary {
   # periodically cleaned up to remove items that are no longer found by the scanner.
   triage {
     suppress {
-      vulnerabilities = []
+      vulnerabilities = [
+        "GO-2026-5932", // x/crypto/openpgp: no fixed version exists upstream; Consul imports no openpgp package.
+        ]
       
       paths = [
         "internal/tools/proto-gen-rpc-glue/e2e/consul/*",

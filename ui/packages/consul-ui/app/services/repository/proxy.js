@@ -1,11 +1,11 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
 import RepositoryService from 'consul-ui/services/repository';
 import { PRIMARY_KEY } from 'consul-ui/models/proxy';
-import { get, set } from '@ember/object';
+import { set } from '@ember/object';
 import dataSource from 'consul-ui/decorators/data-source';
 
 const modelName = 'proxy';
@@ -45,20 +45,21 @@ export default class ProxyService extends RepositoryService {
     const items = await this.findAllBySlug(params, configuration);
 
     let res = {};
-    if (get(items, 'length') > 0) {
-      let instance = items
-        .filterBy('ServiceProxy.DestinationServiceID', params.serviceId)
-        .findBy('NodeName', params.node);
+    if (items.length > 0) {
+      const matching = items.filter(
+        (item) => item?.ServiceProxy?.DestinationServiceID === params.serviceId
+      );
+      let instance = matching.find((item) => item?.NodeName === params.node);
       if (instance) {
         res = instance;
       } else {
-        instance = items.findBy('ServiceProxy.DestinationServiceName', params.id);
+        instance = items.find((item) => item?.ServiceProxy?.DestinationServiceName === params.id);
         if (instance) {
           res = instance;
         }
       }
     }
-    set(res, 'meta', get(items, 'meta'));
+    set(res, 'meta', items.meta);
     return res;
   }
 }

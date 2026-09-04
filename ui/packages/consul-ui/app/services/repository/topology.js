@@ -1,5 +1,5 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
@@ -22,7 +22,7 @@ export default class TopologyService extends RepositoryService {
   @dataSource('/:partition/:ns/:dc/topology/:id/:kind')
   findBySlug(params, configuration = {}) {
     const datacenter = this.dcs.peekOne(params.dc);
-    if (datacenter !== null && !get(datacenter, 'MeshEnabled')) {
+    if (datacenter !== null && !datacenter.MeshEnabled) {
       return Promise.resolve();
     }
     if (typeof configuration.cursor !== 'undefined') {

@@ -1,5 +1,5 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
@@ -15,9 +15,9 @@ module('Integration | Helper | slugify', function (hooks) {
   test('it renders', async function (assert) {
     this.set('inputValue', 'Hi There');
 
-    await render(hbs`{{slugify inputValue}}`);
+    await render(hbs`{{slugify this.inputValue}}`);
 
-    assert.equal(this.element.textContent.trim(), 'hi-there');
+    assert.strictEqual(this.element.textContent.trim(), 'hi-there');
   });
   skip("it copes with more values such as ' etc");
 });

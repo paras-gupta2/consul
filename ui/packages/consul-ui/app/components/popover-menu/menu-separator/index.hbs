@@ -2,8 +2,11 @@
   Copyright (c) HashiCorp, Inc.
   SPDX-License-Identifier: BUSL-1.1
 }}
-
-{{yield}}
+{{!-- template-lint-disable require-presentational-children --}}
 <li role="separator">
-  <YieldSlot @name="label">{{yield}}</YieldSlot>
+  {{#if (has-block "label")}}
+    {{yield to="label"}}
+  {{else}}
+    {{yield}}
+  {{/if}}
 </li>

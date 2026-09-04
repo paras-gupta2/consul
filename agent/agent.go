@@ -1,4 +1,4 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2024, 2026
 // SPDX-License-Identifier: BUSL-1.1
 
 package agent
@@ -22,11 +22,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/armon/go-metrics"
-	"github.com/armon/go-metrics/prometheus"
+	"github.com/hashicorp/go-metrics"
+	"github.com/hashicorp/go-metrics/prometheus"
 	"github.com/rboyer/safeio"
 	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 
@@ -34,7 +33,6 @@ import (
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-memdb"
 	"github.com/hashicorp/go-multierror"
-	"github.com/hashicorp/hcp-scada-provider/capability"
 	"github.com/hashicorp/raft"
 	"github.com/hashicorp/serf/serf"
 
@@ -51,7 +49,6 @@ import (
 	external "github.com/hashicorp/consul/agent/grpc-external"
 	grpcDNS "github.com/hashicorp/consul/agent/grpc-external/services/dns"
 	middleware "github.com/hashicorp/consul/agent/grpc-middleware"
-	"github.com/hashicorp/consul/agent/hcp/scada"
 	"github.com/hashicorp/consul/agent/leafcert"
 	"github.com/hashicorp/consul/agent/local"
 	"github.com/hashicorp/consul/agent/netutil"
@@ -407,6 +404,10 @@ type Agent struct {
 	// IP.
 	httpConnLimiter connlimit.Limiter
 
+	// grpcConnLimiter is used to limit connections to the external gRPC server
+	// (the "grpc" and "grpc_tls" ports) by client IP.
+	grpcConnLimiter connlimit.Limiter
+
 	// configReloaders are subcomponents that need to be notified on a reload so
 	// they can update their internal state.
 	configReloaders []ConfigReloader
@@ -431,10 +432,6 @@ type Agent struct {
 
 	// xdsServer serves the XDS protocol for configuring Envoy proxies.
 	xdsServer *xds.Server
-
-	// scadaProvider is set when HashiCorp Cloud Platform integration is configured and exposes the agent's API over
-	// an encrypted session to HCP
-	scadaProvider scada.Provider
 
 	// enterpriseAgent embeds fields that we only access in consul-enterprise builds
 	enterpriseAgent
@@ -492,7 +489,6 @@ func New(bd BaseDeps) (*Agent, error) {
 		cache:           bd.Cache,
 		leafCertManager: bd.LeafCertManager,
 		routineManager:  routine.NewManager(bd.Logger),
-		scadaProvider:   bd.HCP.Provider,
 	}
 
 	// TODO: create rpcClientHealth in BaseDeps once NetRPC is available without Agent
@@ -865,6 +861,11 @@ func (a *Agent) Start(ctx context.Context) error {
 		MaxConnsPerClientIP: a.config.HTTPMaxConnsPerClient,
 	})
 
+	// Configure the external gRPC connection limiter.
+	a.grpcConnLimiter.SetConfig(connlimit.Config{
+		MaxConnsPerClientIP: a.config.GRPCMaxConnsPerClient,
+	})
+
 	// Create listeners and unstarted servers; see comment on listenHTTP why
 	// we are doing this.
 	servers, err := a.listenHTTP()
@@ -898,8 +899,22 @@ func (a *Agent) Start(ctx context.Context) error {
 		go a.retryJoinWAN()
 	}
 
-	if a.tlsConfigurator.Cert() != nil {
-		m := tlsCertExpirationMonitor(a.tlsConfigurator, a.logger)
+	shouldMonitorAgentTLS := a.config.Telemetry.CertificateEnabled &&
+		(a.tlsConfigurator.Cert() != nil ||
+			a.config.AutoEncryptTLS ||
+			a.config.TLS.InternalRPC.CertFile != "" ||
+			a.config.TLS.InternalRPC.KeyFile != "")
+	if shouldMonitorAgentTLS {
+		m := tlsCertExpirationMonitor(
+			a.tlsConfigurator,
+			a.config.Datacenter,
+			a.config.PartitionOrDefault(),
+			a.config.NodeName,
+			tlsCertRole(a.config.ServerMode),
+			a.config.Telemetry.CertificateCriticalThresholdDays,
+			a.config.Telemetry.CertificateWarningThresholdDays,
+			a.logger,
+		)
 		go m.Monitor(&lib.StopChannelContext{StopCh: a.shutdownCh})
 	}
 
@@ -988,7 +1003,13 @@ func (a *Agent) listenAndServeGRPC(server *consul.Server) error {
 			return err
 		}
 		for i := range ln {
-			ln[i] = middleware.LabelledListener{Listener: ln[i], Protocol: protocol}
+			// Enforce a per-client-IP connection limit before the connection is
+			// handed to the gRPC server. The limiter wraps the raw listener so
+			// that LabelledListener remains the outermost wrapper (its
+			// LabelledConn is required by the gRPC transport credentials for
+			// protocol detection).
+			limited := middleware.NewConnLimitListener(ln[i], &a.grpcConnLimiter, a.logger)
+			ln[i] = middleware.LabelledListener{Listener: limited, Protocol: protocol}
 			listeners = append(listeners, ln[i])
 		}
 
@@ -1109,12 +1130,6 @@ func (a *Agent) startListeners(addrs []net.Addr) ([]net.Listener, error) {
 			}
 			l = &tcpKeepAliveListener{l.(*net.TCPListener)}
 
-		case *capability.Addr:
-			l, err = a.scadaProvider.Listen(x.Capability())
-			if err != nil {
-				return nil, err
-			}
-
 		default:
 			closeAll()
 			return nil, fmt.Errorf("unsupported address type %T", addr)
@@ -1167,15 +1182,14 @@ func (a *Agent) listenHTTP() ([]apiServer, error) {
 			a.configReloaders = append(a.configReloaders, srv.ReloadConfig)
 			a.httpHandlers = srv
 			httpServer := &http.Server{
-				Addr:           l.Addr().String(),
-				TLSConfig:      tlscfg,
-				Handler:        srv.handler(),
-				MaxHeaderBytes: a.config.HTTPMaxHeaderBytes,
-			}
-
-			if scada.IsCapability(l.Addr()) {
-				// wrap in http2 server handler
-				httpServer.Handler = h2c.NewHandler(srv.handler(), &http2.Server{})
+				Addr:              l.Addr().String(),
+				TLSConfig:         tlscfg,
+				Handler:           srv.handler(),
+				MaxHeaderBytes:    a.config.HTTPMaxHeaderBytes,
+				ReadHeaderTimeout: a.config.HTTPReadHeaderTimeout,
+				ReadTimeout:       a.config.HTTPReadTimeout,
+				WriteTimeout:      a.config.HTTPWriteTimeout,
+				IdleTimeout:       a.config.HTTPIdleTimeout,
 			}
 
 			// Load the connlimit helper into the server
@@ -1195,9 +1209,6 @@ func (a *Agent) listenHTTP() ([]apiServer, error) {
 	}
 
 	httpAddrs := a.config.HTTPAddrs
-	if a.config.IsCloudEnabled() && a.scadaProvider != nil {
-		httpAddrs = append(httpAddrs, scada.CAPCoreAPI)
-	}
 
 	if err := start("http", httpAddrs); err != nil {
 		closeListeners(ln)
@@ -1400,6 +1411,11 @@ func newConsulConfig(runtimeCfg *config.RuntimeConfig, logger hclog.Logger) (*co
 	cfg.SerfLANConfig.MemberlistConfig.GossipInterval = runtimeCfg.GossipLANGossipInterval
 	cfg.SerfLANConfig.MemberlistConfig.GossipNodes = runtimeCfg.GossipLANGossipNodes
 	cfg.SerfLANConfig.MemberlistConfig.ProbeInterval = runtimeCfg.GossipLANProbeInterval
+
+	// Certificate telemetry configuration
+	cfg.CertificateTelemetryEnabled = runtimeCfg.Telemetry.CertificateEnabled
+	cfg.CertificateTelemetryCriticalThresholdDays = runtimeCfg.Telemetry.CertificateCriticalThresholdDays
+	cfg.CertificateTelemetryWarningThresholdDays = runtimeCfg.Telemetry.CertificateWarningThresholdDays
 	cfg.SerfLANConfig.MemberlistConfig.ProbeTimeout = runtimeCfg.GossipLANProbeTimeout
 	cfg.SerfLANConfig.MemberlistConfig.SuspicionMult = runtimeCfg.GossipLANSuspicionMult
 	cfg.SerfLANConfig.MemberlistConfig.RetransmitMult = runtimeCfg.GossipLANRetransmitMult
@@ -1549,6 +1565,9 @@ func newConsulConfig(runtimeCfg *config.RuntimeConfig, logger hclog.Logger) (*co
 
 	cfg.DefaultQueryTime = runtimeCfg.DefaultQueryTime
 	cfg.MaxQueryTime = runtimeCfg.MaxQueryTime
+	if runtimeCfg.FederationStateAntiEntropySyncInterval > 0 {
+		cfg.FederationStateAntiEntropySyncInterval = runtimeCfg.FederationStateAntiEntropySyncInterval
+	}
 
 	cfg.AutoEncryptAllowTLS = runtimeCfg.AutoEncryptAllowTLS
 
@@ -1564,6 +1583,15 @@ func newConsulConfig(runtimeCfg *config.RuntimeConfig, logger hclog.Logger) (*co
 
 		cfg.CAConfig = ca
 	}
+
+	// TokenDirs must be carried in the consul.Config field, not inside the
+	// mutable CAConfig.Config map. Storing it in the map means an
+	// operator:write API caller can overwrite it via ConnectCA.ConfigurationSet
+	// and bypass the file-read allowlist restriction (SECVULN-44970).
+	cfg.TokenDirs = runtimeCfg.TokenDirs
+
+	cfg.ConnectVirtualIPCIDRv4 = runtimeCfg.ConnectVirtualIPCIDRv4
+	cfg.ConnectVirtualIPCIDRv6 = runtimeCfg.ConnectVirtualIPCIDRv6
 
 	// copy over auto runtimeCfg settings
 	cfg.AutoConfigEnabled = runtimeCfg.AutoConfig.Enabled
@@ -1598,8 +1626,6 @@ func newConsulConfig(runtimeCfg *config.RuntimeConfig, logger hclog.Logger) (*co
 	cfg.RequestLimitsReadRate = runtimeCfg.RequestLimitsReadRate
 	cfg.RequestLimitsWriteRate = runtimeCfg.RequestLimitsWriteRate
 	cfg.Locality = runtimeCfg.StructLocality()
-
-	cfg.Cloud = runtimeCfg.Cloud
 
 	cfg.Reporting.License.Enabled = runtimeCfg.Reporting.License.Enabled
 	cfg.Reporting.SnapshotRetentionTime = runtimeCfg.Reporting.SnapshotRetentionTime
@@ -1779,11 +1805,6 @@ func (a *Agent) ShutdownAgent() error {
 
 	a.rpcClientHealth.Close()
 	a.rpcClientConfigEntry.Close()
-
-	// Shutdown SCADA provider
-	if a.scadaProvider != nil {
-		a.scadaProvider.Stop()
-	}
 
 	var err error
 	if a.delegate != nil {
@@ -2159,6 +2180,10 @@ type persistedService struct {
 	// to exclude it from API output, but we need it to properly deregister
 	// persisted sidecars.
 	LocallyRegisteredAsSidecar bool `json:",omitempty"`
+	// we need it tracks whether default sidecar checks (TCP + alias) were
+	// disabled at registration time. Persisted to maintain consistent check configuration
+	// across agent restarts/reloads. Excluded from API responses but required for state restoration.
+	DisableSidecarDefaultChecks bool `json:",omitempty"`
 }
 
 func (a *Agent) makeServiceFilePath(svcID structs.ServiceID) string {
@@ -2166,15 +2191,16 @@ func (a *Agent) makeServiceFilePath(svcID structs.ServiceID) string {
 }
 
 // persistService saves a service definition to a JSON file in the data dir
-func (a *Agent) persistService(service *structs.NodeService, source configSource) error {
+func (a *Agent) persistService(service *structs.NodeService, source configSource, disableSidecarDefaultChecks bool) error {
 	svcID := service.CompoundServiceID()
 	svcPath := a.makeServiceFilePath(svcID)
 
 	wrapped := persistedService{
-		Token:                      a.State.ServiceToken(service.CompoundServiceID()),
-		Service:                    service,
-		Source:                     source.String(),
-		LocallyRegisteredAsSidecar: service.LocallyRegisteredAsSidecar,
+		Token:                       a.State.ServiceToken(service.CompoundServiceID()),
+		Service:                     service,
+		Source:                      source.String(),
+		LocallyRegisteredAsSidecar:  service.LocallyRegisteredAsSidecar,
+		DisableSidecarDefaultChecks: disableSidecarDefaultChecks,
 	}
 	encoded, err := json.Marshal(wrapped)
 	if err != nil {
@@ -2374,8 +2400,10 @@ func (a *Agent) addServiceLocked(req addServiceLockedRequest) error {
 			req.Service.Port = port
 		}
 		// Setup default check if none given.
-		if len(req.chkTypes) < 1 {
+		if len(req.chkTypes) < 1 && !req.disableSidecarDefaultChecks {
 			req.chkTypes = sidecarDefaultChecks(req.Service.ID, req.Service.Address, req.Service.Proxy.LocalServiceAddress, req.Service.Port)
+		} else {
+			req.disableSidecarDefaultChecks = true
 		}
 	}
 
@@ -2416,12 +2444,13 @@ type addServiceLockedRequest struct {
 // AddServiceRequest contains the fields used to register a service on the local
 // agent using Agent.AddService.
 type AddServiceRequest struct {
-	Service               *structs.NodeService
-	chkTypes              []*structs.CheckType
-	persist               bool
-	token                 string
-	replaceExistingChecks bool
-	Source                configSource
+	Service                     *structs.NodeService
+	chkTypes                    []*structs.CheckType
+	persist                     bool
+	token                       string
+	replaceExistingChecks       bool
+	Source                      configSource
+	disableSidecarDefaultChecks bool
 }
 
 type addServiceInternalRequest struct {
@@ -2614,7 +2643,7 @@ func (a *Agent) addServiceInternal(req addServiceInternalRequest) error {
 			req.persistService = service
 		}
 
-		if err := a.persistService(req.persistService, source); err != nil {
+		if err := a.persistService(req.persistService, source, req.disableSidecarDefaultChecks); err != nil {
 			a.cleanupRegistration(cleanupServices, cleanupChecks)
 			return err
 		}
@@ -2667,11 +2696,17 @@ func (a *Agent) validateService(service *structs.NodeService, chkTypes []*struct
 		)
 	}
 
-	if len(service.Ports) > 0 && service.Port != 0 {
+	// for sidecar we are using Ports for multiport related identification and port for default inbound listener both are valid
+	// for multiport service , its sidecar gets port set to the default port which is equivalent to service's port if set
+	// but for non-sidecar services we should not allow both to be set to avoid confusion
+	if !service.LocallyRegisteredAsSidecar && len(service.Ports) > 0 && service.Port != 0 {
 		return fmt.Errorf("Both port and ports cannot be set")
 	}
 
 	if err := service.Ports.Validate(); err != nil {
+		return err
+	}
+	if err := validateEnterpriseMeshPortConfig(service); err != nil {
 		return err
 	}
 
@@ -3882,12 +3917,13 @@ func (a *Agent) loadServices(conf *config.RuntimeConfig, snap map[structs.CheckI
 			)
 			err = a.addServiceLocked(addServiceLockedRequest{
 				AddServiceRequest: AddServiceRequest{
-					Service:               p.Service,
-					chkTypes:              nil,
-					persist:               false, // don't rewrite the file with the same data we just read
-					token:                 p.Token,
-					replaceExistingChecks: false, // do default behavior
-					Source:                source,
+					Service:                     p.Service,
+					chkTypes:                    nil,
+					persist:                     false, // don't rewrite the file with the same data we just read
+					token:                       p.Token,
+					replaceExistingChecks:       false, // do default behavior
+					Source:                      source,
+					disableSidecarDefaultChecks: p.DisableSidecarDefaultChecks,
 				},
 				serviceDefaults:      serviceDefaultsFromStruct(persistedServiceConfigs[serviceID]),
 				persistServiceConfig: false, // don't rewrite the file with the same data we just read
@@ -4309,6 +4345,10 @@ func (a *Agent) reloadConfigInternal(newCfg *config.RuntimeConfig) error {
 
 	a.httpConnLimiter.SetConfig(connlimit.Config{
 		MaxConnsPerClientIP: newCfg.HTTPMaxConnsPerClient,
+	})
+
+	a.grpcConnLimiter.SetConfig(connlimit.Config{
+		MaxConnsPerClientIP: newCfg.GRPCMaxConnsPerClient,
 	})
 
 	for _, s := range a.dnsServers {

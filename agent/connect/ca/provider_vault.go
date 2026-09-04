@@ -1,4 +1,4 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2024, 2026
 // SPDX-License-Identifier: BUSL-1.1
 
 package ca
@@ -604,7 +604,8 @@ func (v *VaultProvider) GenerateLeafSigningCert() (string, error) {
 	// Sign the CSR with the root backend.
 	intermediate, err := v.writeNamespaced(v.config.RootPKINamespace, v.config.RootPKIPath+"root/sign-intermediate", map[string]interface{}{
 		"csr":            csr,
-		"use_csr_values": true,
+		"use_csr_values": false,
+		"uri_sans":       v.spiffeID.URI().String(),
 		"format":         "pem_bundle",
 		"ttl":            v.config.IntermediateCertTTL.String(),
 	})
@@ -777,7 +778,8 @@ func (v *VaultProvider) SignIntermediate(csr *x509.CertificateRequest) (string, 
 	// Sign the CSR with the root backend.
 	data, err := v.writeNamespaced(v.config.RootPKINamespace, v.config.RootPKIPath+"root/sign-intermediate", map[string]interface{}{
 		"csr":             pemBuf.String(),
-		"use_csr_values":  true,
+		"use_csr_values":  false,
+		"uri_sans":        v.spiffeID.URI().String(),
 		"format":          "pem_bundle",
 		"max_path_length": 0,
 		"ttl":             v.config.IntermediateCertTTL.String(),
@@ -991,6 +993,17 @@ func ParseVaultCAConfig(raw map[string]interface{}, isPrimary bool) (*structs.Va
 		return nil, err
 	}
 
+	// TokenDirs is injected into raw by CAManager.injectTokenDirs before
+	// Configure is called, so the value here always reflects the immutable
+	// server startup configuration rather than anything an API caller supplied.
+	if config.AuthMethod != nil {
+		if config.AuthMethod.Params == nil {
+			config.AuthMethod.Params = make(map[string]interface{})
+		}
+		if v, ok := raw["TokenDirs"]; ok && v != nil {
+			config.AuthMethod.Params["TokenDirs"] = v
+		}
+	}
 	return &config, nil
 }
 

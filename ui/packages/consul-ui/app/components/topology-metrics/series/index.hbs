@@ -20,7 +20,7 @@
 {{/if}}
 
 {{on-window 'resize' (action 'redraw')}}
-{{did-insert (action 'redraw')}}
+{{did-insert-helper (action 'redraw')}}
 
 {{#if (not this.empty)}}
   {{#if this.data.labels}}
@@ -43,7 +43,7 @@
       @error={{this.error}}
     />
   {{/if}}
-  <svg class="sparkline"></svg>
+  <svg class="sparkline" aria-hidden="true"></svg>
 </div>
 
 <ModalDialog
@@ -51,12 +51,14 @@
   @aria={{hash
     label="Metrics Key"
   }}
-  as |modal|>
-    <Ref @target={{this}} @name="modal" @value={{modal}} />
-    <BlockSlot @name="header">
+>
+    <:default as |modal|>
+      <Ref @target={{this}} @name="modal" @value={{modal}} />
+    </:default>
+    <:header>
       <h3>Metrics Key</h3>
-    </BlockSlot>
-    <BlockSlot @name="body">
+    </:header>
+    <:body>
       <div class="sparkline-key-content">
         <p>This key describes the metrics corresponding to the graph tooltip labels in more detail.</p>
         <dl>
@@ -69,14 +71,14 @@
           <span class="no-data">No metrics loaded.</span>
         {{/unless}}
       </div>
-    </BlockSlot>
-    <BlockSlot @name="actions">
+    </:body>
+    <:actions as |close|>
       <button
         type="button"
         class="type-cancel"
-        onclick={{action modal.close}}
+        onclick={{action close}}
       >
         Close
       </button>
-    </BlockSlot>
+    </:actions>
 </ModalDialog>

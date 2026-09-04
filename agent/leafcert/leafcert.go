@@ -1,4 +1,4 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2024, 2026
 // SPDX-License-Identifier: BUSL-1.1
 
 package leafcert
@@ -10,10 +10,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/armon/go-metrics"
-	"github.com/hashicorp/go-hclog"
+	"github.com/hashicorp/go-metrics"
 	"golang.org/x/sync/singleflight"
 	"golang.org/x/time/rate"
+
+	"github.com/hashicorp/go-hclog"
 
 	"github.com/hashicorp/consul/agent/cacheshim"
 	"github.com/hashicorp/consul/agent/structs"
@@ -70,6 +71,13 @@ type Config struct {
 	// deterministic time delay in order to test the behavior here fully and
 	// determinstically.
 	TestOverrideCAChangeInitialDelay time.Duration
+
+	// Certificate telemetry thresholds for determining log severity
+	CertificateTelemetryCriticalThresholdDays int
+	CertificateTelemetryWarningThresholdDays  int
+
+	// TestOverrideMetricEmissionInterval overrides the periodic metric re-emission cadence in tests.
+	TestOverrideMetricEmissionInterval time.Duration
 }
 
 func (c Config) withDefaults() Config {
@@ -94,6 +102,9 @@ func (c Config) withDefaults() Config {
 type Deps struct {
 	Config Config
 	Logger hclog.Logger
+
+	// Datacenter is the datacenter name for metric labels
+	Datacenter string
 
 	// RootsReader is an interface to access connect CA roots.
 	RootsReader RootsReader
@@ -127,6 +138,7 @@ func NewManager(deps Deps) *Manager {
 	m := &Manager{
 		config:      deps.Config,
 		logger:      deps.Logger,
+		datacenter:  deps.Datacenter,
 		certSigner:  deps.CertSigner,
 		rootsReader: deps.RootsReader,
 		//
@@ -144,6 +156,9 @@ func NewManager(deps Deps) *Manager {
 	// Start the expiry watcher
 	go m.runExpiryLoop()
 
+	// Start periodic metric emitter to keep metrics fresh across restarts
+	go m.emitCertMetrics()
+
 	return m
 }
 
@@ -152,6 +167,9 @@ type Manager struct {
 
 	// config contains agent configuration necessary for the cert manager to operate.
 	config Config
+
+	// datacenter is the datacenter name for metric labels
+	datacenter string
 
 	// rootsReader is an interface to access connect CA roots.
 	rootsReader RootsReader
@@ -554,6 +572,85 @@ func (m *Manager) runExpiryLoop() {
 			metrics.SetGauge([]string{"leaf-certs", "entries_count"}, float32(len(m.certs)))
 
 			m.lock.Unlock()
+		}
+	}
+}
+
+// emitCertMetrics periodically re-emits certificate expiry and failure metrics
+// This ensures metrics persist across agent restarts and remain visible to Prometheus
+func (m *Manager) emitCertMetrics() {
+	interval := 5 * time.Minute
+	if m.config.TestOverrideMetricEmissionInterval > 0 {
+		interval = m.config.TestOverrideMetricEmissionInterval
+	}
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	emitMetrics := func() {
+		m.lock.RLock()
+		defer m.lock.RUnlock()
+
+		for _, cd := range m.certs {
+			cd.lock.Lock()
+			cert := cd.value
+			failureReason := cd.state.lastRenewalFailureReason
+			rateLimitErrs := cd.state.consecutiveRateLimitErrs
+			cd.lock.Unlock()
+
+			if cert == nil {
+				continue
+			}
+
+			// Re-emit expiry metric
+			labels := []metrics.Label{
+				{Name: "datacenter", Value: m.datacenter},
+				{Name: "partition", Value: cert.PartitionOrDefault()},
+				{Name: "namespace", Value: cert.NamespaceOrDefault()},
+				{Name: "service", Value: cert.Service},
+				{Name: "kind", Value: string(cert.Kind)},
+			}
+
+			if !cert.ValidBefore.IsZero() {
+				timeUntilExpiry := time.Until(cert.ValidBefore)
+				metrics.SetGaugeWithLabels(
+					[]string{"leaf-certs", "cert_expiry"},
+					float32(timeUntilExpiry.Seconds()),
+					labels,
+				)
+			}
+
+			// Re-emit failure metric if applicable
+			if failureReason != "" || rateLimitErrs > 0 {
+				reason := failureReason
+				if reason == "" {
+					reason = "rate_limited"
+				}
+				metrics.SetGaugeWithLabels(
+					[]string{"leaf-certs", "cert_renewal_failure"},
+					1,
+					append(labels, metrics.Label{Name: "reason", Value: reason}),
+				)
+			} else {
+				// Clear failure metric
+				metrics.SetGaugeWithLabels(
+					[]string{"leaf-certs", "cert_renewal_failure"},
+					0,
+					labels,
+				)
+			}
+		}
+	}
+
+	// Emit immediately on startup
+	emitMetrics()
+
+	for {
+		select {
+		case <-m.ctx.Done():
+			return
+		case <-ticker.C:
+			emitMetrics()
 		}
 	}
 }

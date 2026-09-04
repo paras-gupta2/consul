@@ -1,5 +1,5 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
@@ -8,7 +8,6 @@ import { module, test } from 'qunit';
 
 module('Unit | Utility | merge-checks', function () {
   test('it works', function (assert) {
-    assert.expect(4);
     [
       {
         desc: 'One list of checks, not exposed',

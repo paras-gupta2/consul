@@ -1,4 +1,4 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2024, 2026
 // SPDX-License-Identifier: BUSL-1.1
 
 package structs
@@ -14,6 +14,18 @@ type EnvoyExtension struct {
 	Arguments     map[string]interface{} `bexpr:"-"`
 	ConsulVersion string
 	EnvoyVersion  string
+}
+
+func (c *EnvoyExtension) getHash() uint64 {
+	return hashValue(c)
+}
+
+func (c *EnvoyExtension) appendHash(h *customHasher) {
+	h.addString(c.Name).
+		addBool(c.Required).
+		addString(c.ConsulVersion).
+		addString(c.EnvoyVersion).
+		addJSONValue(c.Arguments)
 }
 
 type EnvoyExtensions []EnvoyExtension

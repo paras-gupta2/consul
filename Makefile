@@ -10,7 +10,7 @@ GO_MODULES := $(shell find . -name go.mod -exec dirname {} \; | grep -v "proto-g
 # These version variables can either be a valid string for "go install <module>@<version>"
 # or the string @DEV to imply use what is currently installed locally.
 ###
-GOLANGCI_LINT_VERSION='v2.4.0'
+GOLANGCI_LINT_VERSION='v2.11.4'
 MOCKERY_VERSION='v3.5.2'
 BUF_VERSION='v1.56.0'
 
@@ -18,7 +18,7 @@ PROTOC_GEN_GO_GRPC_VERSION='v1.5.1'
 MOG_VERSION='ee61dbb3714674e897406d364d14c6d2e6b2e89f'
 PROTOC_GO_INJECT_TAG_VERSION='v1.3.0'
 PROTOC_GEN_GO_BINARY_VERSION='v0.1.0'
-DEEP_COPY_VERSION='dc4a8d91ed65656858cd53e6e83bbf7b83d5b7cb'
+DEEP_COPY_VERSION='7cda106f7b4b4e5006f0d663a2f768659809efbc'
 COPYWRITE_TOOL_VERSION='v0.16.4'
 LINT_CONSUL_RETRY_VERSION='v1.4.0'
 # Go imports formatter
@@ -26,7 +26,7 @@ GCI_VERSION='v0.11.2'
 
 MOCKED_PB_DIRS= pbdns
 
-GOTAGS ?=
+GOTAGS ?= hashicorpmetrics
 GOPATH=$(shell go env GOPATH)
 GOARCH?=$(shell go env GOARCH)
 MAIN_GOPATH=$(shell go env GOPATH | cut -d: -f1)
@@ -73,8 +73,8 @@ CONSUL_IMAGE_VERSION?=latest
 GOLANG_VERSION?=$(shell head -n 1 .go-version)
 # Takes the highest version from the ENVOY_VERSIONS file.
 ENVOY_VERSION?=$(shell cat envoyextensions/xdscommon/ENVOY_VERSIONS | grep '^[[:digit:]]' | sort -nr | head -n 1)
-CONSUL_DATAPLANE_IMAGE := $(or $(CONSUL_DATAPLANE_IMAGE),"docker.io/hashicorppreview/consul-dataplane:1.6-dev-ubi")
-DEPLOYER_CONSUL_DATAPLANE_IMAGE := $(or $(DEPLOYER_CONSUL_DATAPLANE_IMAGE), "docker.io/hashicorppreview/consul-dataplane:1.6-dev")
+CONSUL_DATAPLANE_IMAGE := $(or $(CONSUL_DATAPLANE_IMAGE),"docker.io/hashicorppreview/consul-dataplane:2.0.0-dev-ubi")
+DEPLOYER_CONSUL_DATAPLANE_IMAGE := $(or $(DEPLOYER_CONSUL_DATAPLANE_IMAGE), "docker.io/hashicorppreview/consul-dataplane:2.0.0-dev")
 
 CONSUL_VERSION?=$(shell cat version/VERSION)
 
@@ -523,10 +523,6 @@ print-%  : ; @echo $($*) ## utility to echo a makefile variable (i.e. 'make prin
 .PHONY: module-versions
 module-versions: ## Print a list of modules which can be updated. Columns are: module current_version date_of_current_version latest_version
 	@go list -m -u -f '{{if .Update}} {{printf "%-50v %-40s" .Path .Version}} {{with .Time}} {{ .Format "2006-01-02" -}} {{else}} {{printf "%9s" ""}} {{end}}   {{ .Update.Version}} {{end}}' all
-
-.PHONY: docs
-docs: ## Point your web browser to http://localhost:3000/consul to live render docs from ./website/
-	make -C website
 
 ##@ Release
 

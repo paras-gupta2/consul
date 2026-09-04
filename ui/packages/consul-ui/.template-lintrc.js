@@ -1,5 +1,5 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
@@ -8,7 +8,7 @@
 module.exports = {
   extends: 'recommended',
   rules: {
-    'no-partial': false,
+    'no-partial': 'error',
     'table-groups': false,
 
     'no-invalid-interactive': false,
@@ -28,9 +28,7 @@ module.exports = {
     'style-concatenation': false,
     'link-rel-noopener': false,
 
-    'no-implicit-this': {
-      allow: ['refresh-route'],
-    },
+    'no-implicit-this': 'error',
     'no-curly-component-invocation': false,
     'no-action': false,
     'no-negated-condition': false,
@@ -42,5 +40,9 @@ module.exports = {
     'no-positive-tabindex': false,
 
     'no-bare-strings': false,
+    // A11y checks
+    'require-context-role': false,
+    // Fixme: Fix all uses of ember-render-modifiers
+    'no-at-ember-render-modifiers': false,
   },
 };

@@ -1,5 +1,5 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
@@ -25,14 +25,14 @@ module('Integration | Routlet', function (hooks) {
 
     let actual = routlet.outletFor('dc.services');
     let expected = 'dc';
-    assert.equal(actual.name, expected);
+    assert.strictEqual(actual.name, expected);
 
     actual = routlet.outletFor('dc');
     expected = 'application';
-    assert.equal(actual.name, expected);
+    assert.strictEqual(actual.name, expected);
 
     actual = routlet.outletFor('application');
     expected = undefined;
-    assert.equal(actual, expected);
+    assert.strictEqual(actual, expected);
   });
 });

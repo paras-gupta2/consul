@@ -1,4 +1,4 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2024, 2026
 // SPDX-License-Identifier: BUSL-1.1
 
 package agent
@@ -12,12 +12,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/armon/go-metrics"
-	"github.com/armon/go-metrics/prometheus"
+	"github.com/hashicorp/go-metrics"
+	"github.com/hashicorp/go-metrics/prometheus"
+	"google.golang.org/grpc/grpclog"
+
 	"github.com/hashicorp/go-hclog"
 	wal "github.com/hashicorp/raft-wal"
 	"github.com/hashicorp/raft-wal/verifier"
-	"google.golang.org/grpc/grpclog"
 
 	autoconf "github.com/hashicorp/consul/agent/auto-config"
 	"github.com/hashicorp/consul/agent/cache"
@@ -33,7 +34,6 @@ import (
 	"github.com/hashicorp/consul/agent/grpc-internal/balancer"
 	"github.com/hashicorp/consul/agent/grpc-internal/resolver"
 	grpcWare "github.com/hashicorp/consul/agent/grpc-middleware"
-	"github.com/hashicorp/consul/agent/hcp"
 	"github.com/hashicorp/consul/agent/leafcert"
 	"github.com/hashicorp/consul/agent/local"
 	"github.com/hashicorp/consul/agent/pool"
@@ -96,6 +96,8 @@ func (r *LazyNetRPC) RPC(ctx context.Context, method string, args any, reply any
 
 type ConfigLoader func(source config.Source) (config.LoadResult, error)
 
+var testLeafCertMetricEmissionInterval time.Duration
+
 func NewBaseDeps(configLoader ConfigLoader, logOut io.Writer, providedLogger hclog.InterceptLogger) (BaseDeps, error) {
 	d := BaseDeps{}
 	result, err := configLoader(nil)
@@ -137,18 +139,6 @@ func NewBaseDeps(configLoader ConfigLoader, logOut io.Writer, providedLogger hcl
 	cfg.Telemetry.PrometheusOpts.SummaryDefinitions = summaries
 
 	var extraSinks []metrics.MetricSink
-	if cfg.IsCloudEnabled() {
-		// This values is set late within newNodeIDFromConfig above
-		cfg.Cloud.NodeID = cfg.NodeID
-
-		d.HCP, err = hcp.NewDeps(cfg.Cloud, d.Logger.Named("hcp"), cfg.DataDir)
-		if err != nil {
-			return d, err
-		}
-		if d.HCP.Sink != nil {
-			extraSinks = append(extraSinks, d.HCP.Sink)
-		}
-	}
 
 	d.MetricsConfig, err = lib.InitTelemetry(cfg.Telemetry, d.Logger, extraSinks...)
 	if err != nil {
@@ -179,10 +169,14 @@ func NewBaseDeps(configLoader ConfigLoader, logOut io.Writer, providedLogger hcl
 	// TODO: create leafCertManager in BaseDeps once NetRPC is available without Agent
 	d.LeafCertManager = leafcert.NewManager(leafcert.Deps{
 		Logger:      d.Logger.Named("leaf-certs"),
+		Datacenter:  cfg.Datacenter,
 		CertSigner:  leafcert.NewNetRPCCertSigner(d.NetRPC),
 		RootsReader: leafcert.NewCachedRootsReader(d.Cache, cfg.Datacenter),
 		Config: leafcert.Config{
-			TestOverrideCAChangeInitialDelay: cfg.ConnectTestCALeafRootChangeSpread,
+			TestOverrideCAChangeInitialDelay:          cfg.ConnectTestCALeafRootChangeSpread,
+			TestOverrideMetricEmissionInterval:        testLeafCertMetricEmissionInterval,
+			CertificateTelemetryCriticalThresholdDays: cfg.Telemetry.CertificateCriticalThresholdDays,
+			CertificateTelemetryWarningThresholdDays:  cfg.Telemetry.CertificateWarningThresholdDays,
 		},
 	})
 	// Set the leaf cert manager in the embedded deps type so it can be used by consul servers.
@@ -273,9 +267,6 @@ func (bd BaseDeps) Close() {
 	bd.AutoConfig.Stop()
 	bd.LeafCertManager.Stop()
 	bd.MetricsConfig.Cancel()
-	if bd.HCP.Sink != nil {
-		bd.HCP.Sink.Shutdown()
-	}
 
 	for _, fn := range []func(){bd.deregisterBalancer, bd.deregisterResolver, bd.stopHostCollector} {
 		if fn != nil {
@@ -353,7 +344,7 @@ func getPrometheusDefs(cfg *config.RuntimeConfig, isServer bool) ([]prometheus.G
 		xds.StatsGauges,
 		usagemetrics.Gauges,
 		consul.ReplicationGauges,
-		CertExpirationGauges,
+		certExpirationGauges(cfg.Datacenter, cfg.PartitionOrDefault(), cfg.NodeName, tlsCertRole(isServer)),
 		Gauges,
 		raftGauges,
 		serverGauges,

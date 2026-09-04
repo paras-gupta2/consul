@@ -1,5 +1,5 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
@@ -21,7 +21,7 @@ module('Integration | Adapter | partition', function (hooks) {
       dc: dc,
     });
     actual = actual();
-    assert.equal(`${actual.method} ${actual.url}`, expected);
+    assert.strictEqual(`${actual.method} ${actual.url}`, expected);
   });
   test('requestForQueryRecord returns the correct url/method', async function (assert) {
     const adapter = this.owner.lookup('adapter:partition');
@@ -35,7 +35,7 @@ module('Integration | Adapter | partition', function (hooks) {
       id: id,
     });
     actual = actual();
-    assert.equal(`${actual.method} ${actual.url}`, expected);
+    assert.strictEqual(`${actual.method} ${actual.url}`, expected);
   });
   test("requestForQueryRecord throws if you don't specify an id", function (assert) {
     const adapter = this.owner.lookup('adapter:partition');

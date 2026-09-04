@@ -1,4 +1,4 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2024, 2026
 // SPDX-License-Identifier: BUSL-1.1
 
 package cache
@@ -117,7 +117,7 @@ func TestTypeNonBlocking(t testinf.T) *MockType {
 
 // Static sets a static value to return for a call to Fetch.
 func (m *MockType) Static(r FetchResult, err error) *mock.Call {
-	return m.Mock.On("Fetch", mock.Anything, mock.Anything).Return(r, err)
+	return m.Mock.On("Fetch", mock.Anything, mock.Anything, mock.Anything).Return(r, err)
 }
 
 func (m *MockRequest) Reset() {

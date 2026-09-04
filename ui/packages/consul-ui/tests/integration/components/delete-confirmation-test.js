@@ -1,5 +1,5 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
@@ -15,7 +15,7 @@ module('Integration | Component | delete confirmation', function (hooks) {
     // Set any properties with this.set('myProperty', 'value');
     // Handle any actions with this.on('myAction', function(val) { ... });
 
-    await render(hbs`{{delete-confirmation}}`);
+    await render(hbs`<DeleteConfirmation/>`);
 
     assert.dom('[data-test-delete]').exists({ count: 1 });
 

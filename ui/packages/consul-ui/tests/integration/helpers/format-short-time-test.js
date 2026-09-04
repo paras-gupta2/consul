@@ -1,5 +1,5 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
@@ -15,8 +15,8 @@ module('Integration | Helper | format-short-time', function (hooks) {
   test('it renders', async function (assert) {
     this.set('inputValue', '7200000');
 
-    await render(hbs`{{format-short-time inputValue}}`);
+    await render(hbs`{{format-short-time this.inputValue}}`);
 
-    assert.equal(this.element.textContent.trim(), '2h');
+    assert.strictEqual(this.element.textContent.trim(), '2h');
   });
 });

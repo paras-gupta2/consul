@@ -1,4 +1,4 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2024, 2026
 // SPDX-License-Identifier: BUSL-1.1
 
 package peerstream
@@ -494,8 +494,18 @@ func (m *subscriptionManager) syncDiscoveryChains(
 		m.collectPendingEventForDiscoveryChain(state, pending, chainName, info)
 	}
 
+	exportedServicesMap := make(map[structs.ServiceName]struct{}, len(state.exportList.Services))
+	for _, m := range state.exportList.Services {
+		exportedServicesMap[m] = struct{}{}
+	}
+
 	// if it was dropped, try to emit an DELETE event
 	for chainName := range state.connectServices {
+		// Deleting stale peer state connect service entry not in exported-service-list
+		if _, ok := exportedServicesMap[chainName]; !ok {
+			delete(state.connectServices, chainName)
+		}
+
 		if _, ok := chainsByName[chainName]; ok {
 			continue
 		}

@@ -1,5 +1,5 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
@@ -22,7 +22,7 @@ module('Unit | Sort | Comparator | node', function () {
       },
     ];
     const comp = comparator('Version:asc');
-    assert.equal(typeof comp, 'function');
+    assert.strictEqual(typeof comp, 'function');
 
     const expected = [
       {

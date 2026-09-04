@@ -1,5 +1,5 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
@@ -15,7 +15,7 @@ module('Integration | Helper | svg-curve', function (hooks) {
   skip('it renders', async function (assert) {
     this.set('inputValue', '1234');
 
-    await render(hbs`{{svg-curve inputValue}}`);
+    await render(hbs`{{svg-curve this.inputValue}}`);
 
     assert.equal(this.element.textContent.trim(), '1234');
   });

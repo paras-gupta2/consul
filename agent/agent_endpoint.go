@@ -1,10 +1,11 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2024, 2026
 // SPDX-License-Identifier: BUSL-1.1
 
 package agent
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -28,6 +29,7 @@ import (
 	"github.com/hashicorp/consul/agent/consul"
 	"github.com/hashicorp/consul/agent/debug"
 	"github.com/hashicorp/consul/agent/leafcert"
+	rpcmiddleware "github.com/hashicorp/consul/agent/rpc/middleware"
 	"github.com/hashicorp/consul/agent/structs"
 	token_store "github.com/hashicorp/consul/agent/token"
 	"github.com/hashicorp/consul/api"
@@ -816,7 +818,12 @@ func (s *HTTPHandlers) AgentRegisterCheck(resp http.ResponseWriter, req *http.Re
 		return nil, err
 	}
 
+	req.Body = http.MaxBytesReader(resp, req.Body, maxAgentRequestBodyBytes)
 	if err := decodeBody(req.Body, &args); err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) || strings.Contains(err.Error(), "request body too large") {
+			return nil, HTTPError{StatusCode: http.StatusRequestEntityTooLarge, Reason: fmt.Sprintf("Request body too large, max size: %d bytes", maxAgentRequestBodyBytes)}
+		}
 		return nil, HTTPError{StatusCode: http.StatusBadRequest, Reason: fmt.Sprintf("Request decode failed: %v", err)}
 	}
 
@@ -936,6 +943,13 @@ func (s *HTTPHandlers) AgentCheckFail(resp http.ResponseWriter, req *http.Reques
 	return s.agentCheckUpdate(resp, req, checkID, api.HealthCritical, note)
 }
 
+// maxAgentRequestBodyBytes is the upper bound applied to JSON request bodies
+// on agent HTTP endpoints that decode the body before ACL authorization.
+// 512 KiB is well above any legitimate check or service registration payload
+// while preventing an unauthenticated caller from retaining large heap buffers
+// inside the JSON decoder (SECVULN-50418).
+const maxAgentRequestBodyBytes = 512 * 1024
+
 // checkUpdate is the payload for a PUT to AgentCheckUpdate.
 type checkUpdate struct {
 	// Status us one of the api.Health* states, "passing", "warning", or
@@ -952,8 +966,20 @@ type checkUpdate struct {
 // AgentCheckUpdate is a PUT-based alternative to the GET-based Pass/Warn/Fail
 // APIs.
 func (s *HTTPHandlers) AgentCheckUpdate(resp http.ResponseWriter, req *http.Request) (interface{}, error) {
+	// Limit the request body to prevent an unauthenticated caller from retaining
+	// unbounded heap inside the JSON decoder before ACL authorization occurs
+	// (SECVULN-50418). http.MaxBytesReader covers chunked bodies that carry no
+	// Content-Length header. Note: check output truncation to CheckOutputMaxSize
+	// happens downstream in updateTTLCheck; the body cap here is intentionally
+	// larger to allow callers to send up to maxAgentRequestBodyBytes.
+	req.Body = http.MaxBytesReader(resp, req.Body, maxAgentRequestBodyBytes)
+
 	var update checkUpdate
 	if err := decodeBody(req.Body, &update); err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) || strings.Contains(err.Error(), "request body too large") {
+			return nil, HTTPError{StatusCode: http.StatusRequestEntityTooLarge, Reason: fmt.Sprintf("Request body too large, max size: %d bytes", maxAgentRequestBodyBytes)}
+		}
 		return nil, HTTPError{StatusCode: http.StatusBadRequest, Reason: fmt.Sprintf("Request decode failed: %v", err)}
 	}
 
@@ -1181,7 +1207,12 @@ func (s *HTTPHandlers) AgentRegisterService(resp http.ResponseWriter, req *http.
 		return nil, err
 	}
 
+	req.Body = http.MaxBytesReader(resp, req.Body, maxAgentRequestBodyBytes)
 	if err := decodeBody(req.Body, &args); err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) || strings.Contains(err.Error(), "request body too large") {
+			return nil, HTTPError{StatusCode: http.StatusRequestEntityTooLarge, Reason: fmt.Sprintf("Request body too large, max size: %d bytes", maxAgentRequestBodyBytes)}
+		}
 		return nil, HTTPError{StatusCode: http.StatusBadRequest, Reason: fmt.Sprintf("Request decode failed: %v", err)}
 	}
 
@@ -1232,7 +1263,9 @@ func (s *HTTPHandlers) AgentRegisterService(resp http.ResponseWriter, req *http.
 	if err := ns.Validate(); err != nil {
 		return nil, HTTPError{StatusCode: http.StatusBadRequest, Reason: fmt.Sprintf("Validation failed: %v", err.Error())}
 	}
-
+	if err := validateEnterpriseMeshPortConfig(ns); err != nil {
+		return nil, HTTPError{StatusCode: http.StatusBadRequest, Reason: fmt.Sprintf("Validation failed: %v", err.Error())}
+	}
 	// Verify the check type.
 	chkTypes, err := args.CheckTypes()
 	if err != nil {
@@ -1246,9 +1279,6 @@ func (s *HTTPHandlers) AgentRegisterService(resp http.ResponseWriter, req *http.
 
 	// Verify the sidecar check types
 	if args.Connect != nil && args.Connect.SidecarService != nil {
-		if len(args.Ports) > 0 {
-			return nil, HTTPError{StatusCode: http.StatusBadRequest, Reason: "MultiPort cannot be used with Consul Connect."}
-		}
 		chkTypes, err := args.Connect.SidecarService.CheckTypes()
 		if err != nil {
 			return nil, HTTPError{StatusCode: http.StatusBadRequest, Reason: fmt.Sprintf("Invalid check in sidecar_service: %v", err)}
@@ -1615,19 +1645,33 @@ func (s *HTTPHandlers) AgentConnectCARoots(resp http.ResponseWriter, req *http.R
 		return nil, nil
 	}
 
-	raw, m, err := s.agent.cache.Get(req.Context(), cachetype.ConnectCARootName, &args)
-	if err != nil {
-		return nil, err
-	}
-	defer setCacheMeta(resp, &m)
+	// Only use the agent cache when HTTP query caching is enabled. Otherwise a
+	// remote caller could bypass the operator's http_config.use_cache = false
+	// setting and force unbounded cache growth by varying the request token
+	// (which is incorporated into the cache key). When caching is disabled we
+	// issue the request directly via RPC instead.
+	var reply *structs.IndexedCARoots
+	if s.agent.config.HTTPUseCache {
+		raw, m, err := s.agent.cache.Get(req.Context(), cachetype.ConnectCARootName, &args)
+		if err != nil {
+			return nil, err
+		}
+		defer setCacheMeta(resp, &m)
 
-	// Add cache hit
-
-	reply, ok := raw.(*structs.IndexedCARoots)
-	if !ok {
-		// This should never happen, but we want to protect against panics
-		return nil, fmt.Errorf("internal error: response type not correct")
+		r, ok := raw.(*structs.IndexedCARoots)
+		if !ok {
+			// This should never happen, but we want to protect against panics
+			return nil, fmt.Errorf("internal error: response type not correct")
+		}
+		reply = r
+	} else {
+		var out structs.IndexedCARoots
+		if err := s.agent.RPC(req.Context(), "ConnectCA.Roots", &args, &out); err != nil {
+			return nil, err
+		}
+		reply = &out
 	}
+
 	defer setMeta(resp, &reply.QueryMeta)
 
 	return *reply, nil
@@ -1704,7 +1748,12 @@ func (s *HTTPHandlers) AgentConnectAuthorize(resp http.ResponseWriter, req *http
 		return nil, err
 	}
 
+	req.Body = http.MaxBytesReader(resp, req.Body, maxAgentRequestBodyBytes)
 	if err := decodeBody(req.Body, &authReq); err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) || strings.Contains(err.Error(), "request body too large") {
+			return nil, HTTPError{StatusCode: http.StatusRequestEntityTooLarge, Reason: fmt.Sprintf("Request body too large, max size: %d bytes", maxAgentRequestBodyBytes)}
+		}
 		return nil, HTTPError{StatusCode: http.StatusBadRequest, Reason: fmt.Sprintf("Request decode failed: %v", err)}
 	}
 
@@ -1766,15 +1815,32 @@ func (s *HTTPHandlers) AgentConnectAuthorize(resp http.ResponseWriter, req *http
 		QueryOptions: structs.QueryOptions{Token: token},
 	}
 
-	raw, meta, err := s.agent.cache.Get(req.Context(), cachetype.IntentionMatchName, args)
-	if err != nil {
-		return nil, fmt.Errorf("failed getting intention match: %w", err)
+	// Only use the agent cache when HTTP query caching is enabled. Otherwise a
+	// caller could bypass the operator's http_config.use_cache = false setting
+	// and drive unbounded intention-match cache growth by varying the request
+	// Target (which is hashed into the cache key). When caching is disabled we
+	// issue the intention match directly via RPC instead.
+	var reply *structs.IndexedIntentionMatches
+	if s.agent.config.HTTPUseCache {
+		raw, meta, err := s.agent.cache.Get(req.Context(), cachetype.IntentionMatchName, args)
+		if err != nil {
+			return nil, fmt.Errorf("failed getting intention match: %w", err)
+		}
+		defer setCacheMeta(resp, &meta)
+
+		r, ok := raw.(*structs.IndexedIntentionMatches)
+		if !ok {
+			return nil, fmt.Errorf("internal error: response type not correct")
+		}
+		reply = r
+	} else {
+		var out structs.IndexedIntentionMatches
+		if err := s.agent.RPC(req.Context(), "Intention.Match", args, &out); err != nil {
+			return nil, fmt.Errorf("failed getting intention match: %w", err)
+		}
+		reply = &out
 	}
 
-	reply, ok := raw.(*structs.IndexedIntentionMatches)
-	if !ok {
-		return nil, fmt.Errorf("internal error: response type not correct")
-	}
 	if len(reply.Matches) != 1 {
 		return nil, fmt.Errorf("Internal error loading matches")
 	}
@@ -1813,8 +1879,6 @@ func (s *HTTPHandlers) AgentConnectAuthorize(resp http.ResponseWriter, req *http
 		//nolint:staticcheck
 		authorized = authz.IntentionDefaultAllow(nil) == acl.Allow
 	}
-
-	setCacheMeta(resp, &meta)
 
 	return &connectAuthorizeResp{
 		Authorized: authorized,
@@ -1860,4 +1924,25 @@ func (s *HTTPHandlers) AgentHost(resp http.ResponseWriter, req *http.Request) (i
 // Retrieves Consul version information.
 func (s *HTTPHandlers) AgentVersion(resp http.ResponseWriter, req *http.Request) (interface{}, error) {
 	return version.GetBuildInfo(), nil
+}
+
+// InternalRPCMethods returns a list of known net/rpc method names.
+//
+// This is intended for debugging/introspection and is derived from Consul's
+// internal rate-limit mapping list. Requires an operator:read ACL token.
+func (s *HTTPHandlers) InternalRPCMethods(resp http.ResponseWriter, req *http.Request) (interface{}, error) {
+	var token string
+	s.parseToken(req, &token)
+	authz, err := s.agent.delegate.ResolveTokenAndDefaultMeta(token, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	// Authorize using the agent's own enterprise meta, not the token.
+	var authzContext acl.AuthorizerContext
+	s.agent.AgentEnterpriseMeta().FillAuthzContext(&authzContext)
+	if err := authz.ToAllowAuthorizer().OperatorReadAllowed(&authzContext); err != nil {
+		return nil, err
+	}
+	return rpcmiddleware.RPCMethodNames(), nil
 }

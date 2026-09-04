@@ -1,5 +1,5 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
@@ -10,16 +10,16 @@ module('Unit | Utils | ascend', function () {
   test('it returns a parent path (ascension of 1)', function (assert) {
     const expected = '/quite/a/deep/path/for/';
     const actual = ascend(expected + 'parent', 1);
-    assert.equal(actual, expected);
+    assert.strictEqual(actual, expected);
   });
   test('it returns a grand parent path (ascension of 2)', function (assert) {
     const expected = 'quite/a/deep/path/for/';
     const actual = ascend(expected + 'grand/parent', 2);
-    assert.equal(actual, expected);
+    assert.strictEqual(actual, expected);
   });
   test('ascending past root returns ""', function (assert) {
     const expected = '';
     const actual = ascend('/short', 2);
-    assert.equal(actual, expected);
+    assert.strictEqual(actual, expected);
   });
 });

@@ -1,4 +1,4 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2024, 2026
 // SPDX-License-Identifier: BUSL-1.1
 
 package proxycfg
@@ -80,6 +80,14 @@ func (h *handlerAPIGateway) initialize(ctx context.Context) (ConfigSnapshot, err
 	snap.APIGateway.WatchedLocalGWEndpoints = watch.NewMap[string, structs.CheckServiceNodes]()
 	snap.APIGateway.WatchedUpstreams = make(map[UpstreamID]map[string]context.CancelFunc)
 	snap.APIGateway.WatchedUpstreamEndpoints = make(map[UpstreamID]map[string]structs.CheckServiceNodes)
+
+	// Watch discovery chains for any builtin/ext-authz mesh (Service) targets
+	// declared on the gateway's EnvoyExtensions so their mTLS clusters/endpoints
+	// can be generated even though they are referenced only by the ext_authz
+	// filter and never as a route target.
+	if err := h.watchExtAuthzMeshTargets(ctx, &snap); err != nil {
+		return snap, err
+	}
 
 	return snap, nil
 }
@@ -193,9 +201,9 @@ func (h *handlerAPIGateway) handleGatewayConfigUpdate(ctx context.Context, u Upd
 				ctx, cancel := context.WithCancel(ctx)
 				switch ref.Kind {
 				case structs.HTTPRoute:
-					snap.APIGateway.HTTPRoutes.InitWatch(ref, cancel)
+					snap.APIGateway.HTTPRoutes.UpdateWatch(ref, cancel)
 				case structs.TCPRoute:
-					snap.APIGateway.TCPRoutes.InitWatch(ref, cancel)
+					snap.APIGateway.TCPRoutes.UpdateWatch(ref, cancel)
 				default:
 					cancel()
 					return fmt.Errorf("unexpected route kind on gateway: %s", ref.Kind)
@@ -267,6 +275,7 @@ func (h *handlerAPIGateway) handleGatewayConfigUpdate(ctx context.Context, u Upd
 		snap.APIGateway.BoundGatewayConfigLoaded = true
 	case *structs.APIGatewayConfigEntry:
 		snap.APIGateway.GatewayConfig = gwConf
+		snap.APIGateway.TLSConfig = gwConf.TLS
 
 		for _, listener := range gwConf.Listeners {
 			snap.APIGateway.Listeners[listener.Name] = listener
@@ -354,12 +363,31 @@ func (h *handlerAPIGateway) handleRouteConfigUpdate(ctx context.Context, u Updat
 	seenUpstreamIDs := make(upstreamIDSet)
 	upstreams := make(map[APIGatewayListenerKey]structs.Upstreams)
 
+	var defaultLimits *structs.UpstreamLimits
+	if snap != nil && snap.APIGateway.GatewayConfig != nil {
+		defaultLimits = snap.APIGateway.GatewayConfig.Defaults
+	}
+
 	switch route := resp.Entry.(type) {
 	case *structs.HTTPRouteConfigEntry:
 		snap.APIGateway.HTTPRoutes.Set(ref, route)
 
 		for _, rule := range route.Rules {
 			for _, service := range rule.Services {
+				effectiveLimits := apiGatewayEffectiveUpstreamLimits(defaultLimits, service.Limits)
+
+				// Retrieving the meshGatewayConfig from handlerAPIGateway instance.
+				// `handlerAPIGateway` embeds `handlerState`, which exposes `serviceInstance.proxyCfg`.
+				// serviceInstance.proxyCfg.MeshGateway is replicated from NodeService during state setup/update.
+				// and NodeService populated for all gateway's during service resistration `AgentRegisterService`.
+				//
+				// So, Whenever any change happens in NodeService, proxyCfg manager will recreate
+				// the state where it copies NodeService to serviceInstance and
+				// then calls this api_gateway handleUpdates method.
+				// which will update the Mesh-Gateway config to api_gateway upstreams (below).
+				// h.service = <name of api-gateway>
+				meshGatewayConfig := h.proxyCfg.MeshGateway
+
 				for _, listener := range snap.APIGateway.Listeners {
 					shouldBind := false
 					for _, parent := range route.Parents {
@@ -372,6 +400,12 @@ func (h *handlerAPIGateway) handleRouteConfigUpdate(ctx context.Context, u Updat
 						continue
 					}
 
+					upstreamCfg := map[string]interface{}{}
+					structs.UpstreamConfig{
+						Protocol: "http",
+						Limits:   effectiveLimits,
+					}.MergeInto(upstreamCfg)
+
 					upstream := structs.Upstream{
 						DestinationName:      service.Name,
 						DestinationNamespace: service.NamespaceOrDefault(),
@@ -379,9 +413,12 @@ func (h *handlerAPIGateway) handleRouteConfigUpdate(ctx context.Context, u Updat
 						LocalBindPort:        listener.Port,
 						// Pass the protocol that was configured on the listener in order
 						// to force that protocol on the Envoy listener.
-						Config: map[string]interface{}{
-							"protocol": "http",
-						},
+						Config: upstreamCfg,
+
+						// Propogate the meshGatewayConfig in api gateway upstreams
+						// so that meshGatewayMode can be used in XDS for
+						// endpoints and cluster config generation.
+						MeshGateway: meshGatewayConfig,
 					}
 
 					listenerKey := APIGatewayListenerKeyFromListener(listener)
@@ -398,6 +435,9 @@ func (h *handlerAPIGateway) handleRouteConfigUpdate(ctx context.Context, u Updat
 					partition:  service.PartitionOrDefault(),
 					datacenter: h.source.Datacenter,
 				}
+				// Ensure discovery chain compilation is HTTP-like for HTTPRoutes so service
+				// routers/splitters are included when present.
+				watchOpts.cfg.Protocol = string(route.GetProtocol())
 
 				handler := &handlerUpstreams{handlerState: h.handlerState}
 				if err := handler.watchDiscoveryChain(ctx, snap, watchOpts); err != nil {
@@ -410,6 +450,8 @@ func (h *handlerAPIGateway) handleRouteConfigUpdate(ctx context.Context, u Updat
 		snap.APIGateway.TCPRoutes.Set(ref, route)
 
 		for _, service := range route.Services {
+			effectiveLimits := apiGatewayEffectiveUpstreamLimits(defaultLimits, service.Limits)
+			meshGatewayConfig := h.proxyCfg.MeshGateway
 			upstreamID := NewUpstreamIDFromServiceName(service.ServiceName())
 			seenUpstreamIDs.add(upstreamID)
 
@@ -426,6 +468,12 @@ func (h *handlerAPIGateway) handleRouteConfigUpdate(ctx context.Context, u Updat
 					continue
 				}
 
+				upstreamCfg := map[string]interface{}{}
+				structs.UpstreamConfig{
+					Protocol: "tcp",
+					Limits:   effectiveLimits,
+				}.MergeInto(upstreamCfg)
+
 				upstream := structs.Upstream{
 					DestinationName:      service.Name,
 					DestinationNamespace: service.NamespaceOrDefault(),
@@ -433,9 +481,8 @@ func (h *handlerAPIGateway) handleRouteConfigUpdate(ctx context.Context, u Updat
 					LocalBindPort:        listener.Port,
 					// Pass the protocol that was configured on the ingress listener in order
 					// to force that protocol on the Envoy listener.
-					Config: map[string]interface{}{
-						"protocol": "tcp",
-					},
+					Config:      upstreamCfg,
+					MeshGateway: meshGatewayConfig,
 				}
 
 				listenerKey := APIGatewayListenerKeyFromListener(listener)
@@ -449,6 +496,8 @@ func (h *handlerAPIGateway) handleRouteConfigUpdate(ctx context.Context, u Updat
 				partition:  service.PartitionOrDefault(),
 				datacenter: h.source.Datacenter,
 			}
+			// Ensure discovery chain compilation matches the route protocol.
+			watchOpts.cfg.Protocol = string(route.GetProtocol())
 
 			handler := &handlerUpstreams{handlerState: h.handlerState}
 			if err := handler.watchDiscoveryChain(ctx, snap, watchOpts); err != nil {
@@ -482,6 +531,42 @@ func (h *handlerAPIGateway) handleRouteConfigUpdate(ctx context.Context, u Updat
 	reconcilePeeringWatches(snap.APIGateway.DiscoveryChain, snap.APIGateway.UpstreamConfig, snap.APIGateway.PeeredUpstreams, snap.APIGateway.PeerUpstreamEndpoints, snap.APIGateway.UpstreamPeerTrustBundles)
 
 	return nil
+}
+
+func apiGatewayEffectiveUpstreamLimits(defaults, service *structs.UpstreamLimits) *structs.UpstreamLimits {
+	if defaults == nil && service == nil {
+		return nil
+	}
+
+	effective := &structs.UpstreamLimits{}
+	if defaults != nil {
+		effective = defaults.Clone()
+	}
+	if effective == nil {
+		effective = &structs.UpstreamLimits{}
+	}
+
+	if service != nil {
+		if service.MaxConnections != nil {
+			effective.MaxConnections = intPointer(*service.MaxConnections)
+		}
+		if service.MaxPendingRequests != nil {
+			effective.MaxPendingRequests = intPointer(*service.MaxPendingRequests)
+		}
+		if service.MaxConcurrentRequests != nil {
+			effective.MaxConcurrentRequests = intPointer(*service.MaxConcurrentRequests)
+		}
+	}
+
+	if effective.IsZero() {
+		return nil
+	}
+
+	return effective
+}
+
+func intPointer(v int) *int {
+	return &v
 }
 
 func (h *handlerAPIGateway) recompileDiscoveryChains(snap *ConfigSnapshot) error {

@@ -1,4 +1,4 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2024, 2026
 // SPDX-License-Identifier: BUSL-1.1
 
 syntax = "proto3";
@@ -13,6 +13,12 @@ import "private/pbcommon/common.proto";
 // ConfigEntryService handles operations related to config entries
 service ConfigEntryService {
   rpc GetResolvedExportedServices(GetResolvedExportedServicesRequest) returns (GetResolvedExportedServicesResponse) {
+    option (hashicorp.consul.internal.ratelimit.spec) = {
+      operation_type: OPERATION_TYPE_READ
+      operation_category: OPERATION_CATEGORY_CONFIGENTRY
+    };
+  }
+  rpc GetImportedServices(GetImportedServicesRequest) returns (GetImportedServicesResponse) {
     option (hashicorp.consul.internal.ratelimit.spec) = {
       operation_type: OPERATION_TYPE_READ
       operation_category: OPERATION_CATEGORY_CONFIGENTRY
@@ -37,6 +43,21 @@ message ResolvedExportedService {
 message Consumers {
   repeated string Peers = 1;
   repeated string Partitions = 2;
+}
+
+message GetImportedServicesRequest {
+  string Partition = 1;
+}
+
+message GetImportedServicesResponse {
+  repeated ImportedService Services = 1;
+}
+
+message ImportedService {
+  string Service = 1;
+  common.EnterpriseMeta EnterpriseMeta = 2;
+  string SourcePeer = 3;
+  string SourcePartition = 4;
 }
 
 enum Kind {
@@ -722,6 +743,12 @@ message PassiveHealthCheck {
   uint32 MaxEjectionPercent = 4;
   // mog: func-to=structs.DurationPointerFromProto func-from=structs.DurationPointerToProto
   google.protobuf.Duration BaseEjectionTime = 5;
+  // mog: target=EnforcingConsecutiveGatewayFailure func-to=pointerToUint32FromUint32 func-from=uint32FromPointerToUint32
+  uint32 EnforcingConsecutiveGatewayFailure = 6;
+  // mog: target=Consecutive5xx func-to=pointerToUint32FromUint32 func-from=uint32FromPointerToUint32
+  uint32 Consecutive5xx = 7;
+  // mog: target=ConsecutiveGatewayFailure func-to=pointerToUint32FromUint32 func-from=uint32FromPointerToUint32
+  uint32 ConsecutiveGatewayFailure = 8;
 }
 
 // mog annotation:
@@ -783,6 +810,14 @@ message APIGateway {
   repeated APIGatewayListener Listeners = 2;
   Status Status = 3;
   uint64 Hash = 4;
+  GatewayTLSConfig TLS = 5;
+  UpstreamLimits Defaults = 6;
+  // mog: func-to=gwExtAuthzToStructs func-from=gwExtAuthzFromStructs
+  APIGatewayExtAuthz ExtAuthz = 7;
+}
+
+message APIGatewayExtAuthz {
+  bool Enabled = 1;
 }
 
 // mog annotation:
@@ -846,6 +881,7 @@ message APIGatewayTLSConfiguration {
   string MaxVersion = 3;
   // mog: func-from=cipherSuitesFromStructs func-to=cipherSuitesToStructs
   repeated string CipherSuites = 4;
+  GatewayTLSSDSConfig SDS = 5;
 }
 
 // mog annotation:
@@ -1060,6 +1096,55 @@ message HTTPFilters {
   TimeoutFilter TimeoutFilter = 4;
   // mog: func-to=routeJWTFilterToStructs func-from=routeJWTFilterFromStructs
   JWTFilter JWT = 5;
+  // mog: func-to=routeExtAuthzFilterToStructs func-from=routeExtAuthzFilterFromStructs
+  HTTPRouteExtAuthzFilter ExtAuthz = 6;
+  repeated ExtProcFilter ExtProc = 7;
+}
+
+// mog annotation:
+//
+// target=github.com/hashicorp/consul/agent/structs.ExtProcFilter
+// output=config_entry.gen.go
+// name=Structs
+message ExtProcFilter {
+  string StatPrefix = 1;
+  string Mode = 2;
+  ExtProcOverrides Overrides = 3;
+}
+
+// mog annotation:
+//
+// target=github.com/hashicorp/consul/agent/structs.ExtProcOverrides
+// output=config_entry.gen.go
+// name=Structs
+message ExtProcOverrides {
+  ExtProcProcessing Processing = 1;
+}
+
+// mog annotation:
+//
+// target=github.com/hashicorp/consul/agent/structs.ExtProcProcessing
+// output=config_entry.gen.go
+// name=Structs
+message ExtProcProcessing {
+  ExtProcProcessingDirection Request = 1;
+  ExtProcProcessingDirection Response = 2;
+}
+
+// mog annotation:
+//
+// target=github.com/hashicorp/consul/agent/structs.ExtProcProcessingDirection
+// output=config_entry.gen.go
+// name=Structs
+message ExtProcProcessingDirection {
+  string HeadersMode = 1;
+  string BodyMode = 2;
+  string TrailersMode = 3;
+  int64 MaxBodyBytes = 4;
+}
+
+message HTTPRouteExtAuthzFilter {
+  bool Enabled = 1;
 }
 
 // mog annotation:
@@ -1132,6 +1217,8 @@ message HTTPService {
   // mog: func-to=enterpriseMetaToStructs func-from=enterpriseMetaFromStructs
   common.EnterpriseMeta EnterpriseMeta = 4;
   HTTPResponseFilters ResponseFilters = 5;
+  GatewayServiceTLSConfig TLS = 6;
+  UpstreamLimits Limits = 7;
 }
 
 // mog annotation:
@@ -1157,6 +1244,8 @@ message TCPService {
   string Name = 1;
   // mog: func-to=enterpriseMetaToStructs func-from=enterpriseMetaFromStructs
   common.EnterpriseMeta EnterpriseMeta = 2;
+  GatewayServiceTLSConfig TLS = 3;
+  UpstreamLimits Limits = 4;
 }
 
 // mog annotation:

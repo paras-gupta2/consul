@@ -23,27 +23,27 @@ If the `@login` attribute is provided, a button will be shown directly
 underneath the body text clicking on which will fire the provided `@login`
 function.
 
-```hbs preview-template
+```hbs
 <EmptyState
   class="status-404"
   @login={{noop}}
 >
-  <BlockSlot @name="header">
+  <:header>
     <h2>
       Header
     </h2>
-  </BlockSlot>
-  <BlockSlot @name="subheader">
+  </:header>
+  <:subheader>
     <h3>
       Subheader
     </h3>
-  </BlockSlot>
-  <BlockSlot @name="body">
+  </:subheader>
+  <:body>
     <p>
       Body text
     </p>
-  </BlockSlot>
-  <BlockSlot @name="actions">
+  </:body>
+  <:actions>
     <li>
       <Hds::Link::Standalone
         @text='Documentation on namespaces'
@@ -62,7 +62,7 @@ function.
         @size='small'
       />
     </li>
-  </BlockSlot>
+  </:actions>
 </EmptyState>
 ```
 
@@ -70,12 +70,12 @@ The component has four slots for specifying header, subheader, body and
 'actions', although the component will show a minimal empty slot if only the
 body slot is specified:
 
-```hbs preview-template
+```hbs
 <EmptyState>
-  <BlockSlot @name="body">
+  <:body>
     <p>
       Minimal text
     </p>
-  </BlockSlot>
+  </:body>
 </EmptyState>
 ```

@@ -1,4 +1,4 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2024, 2026
 // SPDX-License-Identifier: BUSL-1.1
 
 package consul
@@ -10,13 +10,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
-	"github.com/armon/go-metrics"
-	"github.com/armon/go-metrics/prometheus"
 	"github.com/hashicorp/go-bexpr"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-memdb"
+	"github.com/hashicorp/go-metrics"
+	"github.com/hashicorp/go-metrics/prometheus"
 	"github.com/hashicorp/go-uuid"
 
 	"github.com/hashicorp/consul/acl"
@@ -38,67 +39,67 @@ const (
 var ACLEndpointSummaries = []prometheus.SummaryDefinition{
 	{
 		Name: []string{"acl", "token", "clone"},
-		Help: "",
+		Help: "Measures the time it takes to clone an existing ACL token.",
 	},
 	{
 		Name: []string{"acl", "token", "upsert"},
-		Help: "",
+		Help: "Measures the time it takes to create or update an ACL token.",
 	},
 	{
 		Name: []string{"acl", "token", "delete"},
-		Help: "",
+		Help: "Measures the time it takes to delete an ACL token.",
 	},
 	{
 		Name: []string{"acl", "policy", "upsert"},
-		Help: "",
+		Help: "Measures the time it takes to create or update an ACL policy.",
 	},
 	{
 		Name: []string{"acl", "policy", "delete"},
-		Help: "",
+		Help: "Measures the time it takes to delete an ACL policy.",
 	},
 	{
 		Name: []string{"acl", "policy", "delete"},
-		Help: "",
+		Help: "Measures the time it takes to delete an ACL policy.",
 	},
 	{
 		Name: []string{"acl", "role", "upsert"},
-		Help: "",
+		Help: "Measures the time it takes to create or update an ACL role.",
 	},
 	{
 		Name: []string{"acl", "role", "delete"},
-		Help: "",
+		Help: "Measures the time it takes to delete an ACL role.",
 	},
 	{
 		Name: []string{"acl", "bindingrule", "upsert"},
-		Help: "",
+		Help: "Measures the time it takes to create or update an ACL binding rule.",
 	},
 	{
 		Name: []string{"acl", "bindingrule", "delete"},
-		Help: "",
+		Help: "Measures the time it takes to delete an ACL binding rule.",
 	},
 	{
 		Name: []string{"acl", "authmethod", "upsert"},
-		Help: "",
+		Help: "Measures the time it takes to create or update an ACL authmethod.",
 	},
 	{
 		Name: []string{"acl", "authmethod", "delete"},
-		Help: "",
+		Help: "Measures the time it takes to delete an ACL authmethod.",
 	},
 	{
 		Name: []string{"acl", "login"},
-		Help: "",
+		Help: "Measures the time it takes to complete an ACL login operation using an authmethod method.",
 	},
 	{
 		Name: []string{"acl", "login"},
-		Help: "",
+		Help: "Measures the time it takes to complete an ACL login operation using an authmethod method.",
 	},
 	{
 		Name: []string{"acl", "logout"},
-		Help: "",
+		Help: "Measures the time it takes to complete an ACL logout operation, invalidating the session.",
 	},
 	{
 		Name: []string{"acl", "logout"},
-		Help: "",
+		Help: "Measures the time it takes to complete an ACL logout operation, invalidating the session.",
 	},
 }
 
@@ -1951,6 +1952,17 @@ func (a *ACL) AuthMethodSet(args *structs.ACLAuthMethodSetRequest, reply *struct
 		}
 	}
 
+	method.TokenNameFormat = strings.Trim(method.TokenNameFormat, " ")
+	if method.TokenNameFormat != "" {
+		claims := method.GetClaimMappings()
+		_, err := auth.FormatTokenName(method, claims, true)
+		if err != nil {
+			return fmt.Errorf("Failed to validate token-format-name: %s", err.Error())
+		}
+	} else {
+		method.TokenNameFormat = structs.DefaultACLAuthMethodTokenNameFormat
+	}
+
 	switch method.TokenLocality {
 	case "local", "":
 	case "global":
@@ -2134,12 +2146,17 @@ func (a *ACL) Login(args *structs.ACLLoginRequest, reply *structs.ACLToken) erro
 		return err
 	}
 
+	name, err := auth.FormatTokenName(authMethod, verifiedIdentity.ProjectedVars, false)
+	if err != nil {
+		return err
+	}
+
 	description, err := auth.BuildTokenDescription("token created via login", args.Auth.Meta)
 	if err != nil {
 		return err
 	}
 
-	token, err := a.srv.aclLogin().TokenForVerifiedIdentity(verifiedIdentity, authMethod, description)
+	token, err := a.srv.aclLogin().TokenForVerifiedIdentity(verifiedIdentity, authMethod, name, description)
 	if err == nil {
 		*reply = *token
 	}

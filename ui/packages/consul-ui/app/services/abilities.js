@@ -1,9 +1,9 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
-import Service from 'ember-can/services/can';
+import Service from 'ember-can/services/abilities';
 
 export default class AbilitiesService extends Service {
   parse(str) {

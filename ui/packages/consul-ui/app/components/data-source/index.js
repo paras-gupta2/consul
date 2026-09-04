@@ -1,5 +1,5 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
@@ -101,9 +101,15 @@ export default class DataSource extends Component {
     if (
       typeof this.data !== 'undefined' &&
       typeof this.data.length === 'undefined' &&
-      typeof this.data.rollbackAttributes === 'function'
+      typeof this.data.rollbackAttributes === 'function' &&
+      !this.data.isDestroying &&
+      !this.data.isDestroyed
     ) {
-      this.data.rollbackAttributes();
+      try {
+        this.data.rollbackAttributes();
+      } catch (e) {
+        // record may be unloaded/disconnected; ignore
+      }
     }
     this.close();
     this._listeners.remove();

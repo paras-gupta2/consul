@@ -1,5 +1,5 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
@@ -31,6 +31,6 @@ module('Unit | Utility | update array object', function () {
     ];
     const actual = updateArrayObject(arr, expected, 'id');
     assert.ok(actual, expected);
-    assert.equal(arr[1].name, expected.name);
+    assert.strictEqual(arr[1].name, expected.name);
   });
 });

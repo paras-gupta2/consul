@@ -1,4 +1,4 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2024, 2026
 // SPDX-License-Identifier: BUSL-1.1
 
 package agent
@@ -364,6 +364,11 @@ func conflictingFlags(resp http.ResponseWriter, req *http.Request, flags ...stri
 func validateKVKey(key string) error {
 	if len(key) == 0 {
 		return fmt.Errorf("empty key name is not allowed")
+	}
+
+	// Adding this for consistency
+	if strings.HasPrefix(key, "/") {
+		return fmt.Errorf("invalid key name, must not begin with '/'")
 	}
 
 	if strings.HasPrefix(key, " ") || strings.HasSuffix(key, " ") {

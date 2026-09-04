@@ -1,5 +1,5 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
@@ -15,7 +15,7 @@ module('Integration | Helper | atob', function (hooks) {
   test('it renders', async function (assert) {
     this.set('inputValue', 'MTIzNA==');
 
-    await render(hbs`{{atob inputValue}}`);
-    assert.equal(this.element.textContent.trim(), '1234');
+    await render(hbs`{{atob this.inputValue}}`);
+    assert.strictEqual(this.element.textContent.trim(), '1234');
   });
 });

@@ -1,4 +1,4 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2024, 2026
 // SPDX-License-Identifier: BUSL-1.1
 
 package cachetype
@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"context"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
@@ -39,13 +40,14 @@ func TestIntentionUpstreamsDestination(t *testing.T) {
 		})
 
 	// Fetch
-	resultA, err := typ.Fetch(cache.FetchOptions{
-		MinIndex: 24,
-		Timeout:  1 * time.Second,
-	}, &structs.ServiceSpecificRequest{
-		Datacenter:  "dc1",
-		ServiceName: "foo",
-	})
+	resultA, err := typ.Fetch(context.Background(),
+		cache.FetchOptions{
+			MinIndex: 24,
+			Timeout:  1 * time.Second,
+		}, &structs.ServiceSpecificRequest{
+			Datacenter:  "dc1",
+			ServiceName: "foo",
+		})
 	require.NoError(t, err)
 	require.Equal(t, cache.FetchResult{
 		Value: resp,

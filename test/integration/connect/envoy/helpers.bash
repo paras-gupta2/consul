@@ -1,5 +1,5 @@
 #!/bin/bash
-# Copyright (c) HashiCorp, Inc.
+# Copyright IBM Corp. 2024, 2026
 # SPDX-License-Identifier: BUSL-1.1
 
 
@@ -839,9 +839,10 @@ function must_fail_http_request {
 function get_echo_output {
   # Take the JSON response from $output, starting with first line containing only '{'
   # and ending with the next line containing only '}'.
-  # The first sed converts a trailing '}* <some text...>' (curl -v output) to just '}'.
-  local json=$(echo "$output" | sed 's/}\*.*/}/' | sed -n -e '/^{$/,/^}$/{ p; }')
-  echo $json | jq -r '.' || echo "Output did not contain valid JSON: $output" >&3
+  # The first sed drops curl verbose lines that start with '*'.
+  # The second sed converts a trailing '}* <some text...>' fragment to just '}'.
+  local json=$(echo "$output" | sed '/^\*/d' | sed 's/}\*.*/}/' | sed -n -e '/^{$/,/^}$/{ p; }')
+  printf '%s\n' "$json" | jq -r '.' || echo "Output did not contain valid JSON: $output" >&3
 }
 
 # Gets the value of the raw request path from the echo service response.
@@ -997,22 +998,33 @@ function get_upstream_fortio_name {
   local PORT=$2
   local PREFIX=$3
   local DEBUG_HEADER_VALUE="${4:-""}"
-  local extra_args
-  if [[ -n "${DEBUG_HEADER_VALUE}" ]]; then
-    extra_args="-H x-test-debug:${DEBUG_HEADER_VALUE}"
-  fi
-  # split proto if https:// is at the front of the host since the --resolve
-  # string needs just a bare host.
   local PROTO=""
-  local CA_FILE=""
-  if [ "${HOST:0:8}" = "https://" ]; then
-    HOST="${HOST:8}"
+  local -a curl_args
+
+  # Strip optional scheme/path so --resolve always receives a bare hostname.
+  case "$HOST" in
+  https://*)
     PROTO="https://"
-    extra_args="${extra_args} --cacert /workdir/test-sds-server/certs/ca-root.crt"
+    HOST="${HOST#https://}"
+    ;;
+  http://*)
+    PROTO="http://"
+    HOST="${HOST#http://}"
+    ;;
+  esac
+  HOST="${HOST%%/*}"
+
+  curl_args=(-v -s -f --resolve "${HOST}:${PORT}:127.0.0.1")
+  if [[ -n "${DEBUG_HEADER_VALUE}" ]]; then
+    curl_args+=("-H" "x-test-debug:${DEBUG_HEADER_VALUE}")
   fi
+  if [ "$PROTO" = "https://" ]; then
+    curl_args+=("--cacert" "/workdir/test-sds-server/certs/ca-root.crt")
+  fi
+
   # We use --resolve instead of setting a Host header since we need the right
   # name to be sent for SNI in some cases too.
-  run retry_default curl -v -s -f --resolve "${HOST}:${PORT}:127.0.0.1" $extra_args \
+  run retry_default curl "${curl_args[@]}" \
     "${PROTO}${HOST}:${PORT}${PREFIX}/debug?env=dump"
 
   # Useful Debugging but breaks the expectation that the value output is just
@@ -1031,7 +1043,7 @@ function assert_expected_fortio_name {
   local URL_PREFIX=${4:-""}
   local DEBUG_HEADER_VALUE="${5:-""}"
 
-  run get_upstream_fortio_name ${HOST} ${PORT} "${URL_PREFIX}" "${DEBUG_HEADER_VALUE}"
+  run get_upstream_fortio_name "${HOST}" "${PORT}" "${URL_PREFIX}" "${DEBUG_HEADER_VALUE}"
 
   echo "GOT: $output"
 
@@ -1046,7 +1058,7 @@ function assert_expected_fortio_name_pattern {
   local URL_PREFIX=${4:-""}
   local DEBUG_HEADER_VALUE="${5:-""}"
 
-  GOT=$(get_upstream_fortio_name ${HOST} ${PORT} "${URL_PREFIX}" "${DEBUG_HEADER_VALUE}")
+  GOT=$(get_upstream_fortio_name "${HOST}" "${PORT}" "${URL_PREFIX}" "${DEBUG_HEADER_VALUE}")
 
   if [[ "$GOT" =~ $EXPECT_NAME_PATTERN ]]; then
     :
@@ -1078,7 +1090,7 @@ function assert_expected_fortio_host_header {
   local URL_PREFIX=${4:-""}
   local DEBUG_HEADER_VALUE="${5:-""}"
 
-  GOT=$(get_upstream_fortio_host_header ${HOST} ${PORT} "${URL_PREFIX}" "${DEBUG_HEADER_VALUE}")
+  GOT=$(get_upstream_fortio_host_header "${HOST}" "${PORT}" "${URL_PREFIX}" "${DEBUG_HEADER_VALUE}")
 
   if [ "$GOT" != "Host: ${EXPECT_HOST}" ]; then
     echo "expected Host header: $EXPECT_HOST, actual Host header: $GOT" 1>&2

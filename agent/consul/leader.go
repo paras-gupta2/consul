@@ -1,4 +1,4 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2024, 2026
 // SPDX-License-Identifier: BUSL-1.1
 
 package consul
@@ -13,8 +13,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/armon/go-metrics"
-	"github.com/armon/go-metrics/prometheus"
+	"github.com/hashicorp/go-metrics"
+	"github.com/hashicorp/go-metrics/prometheus"
 	"golang.org/x/time/rate"
 
 	"github.com/hashicorp/go-hclog"
@@ -430,14 +430,6 @@ func (s *Server) initializeACLs(ctx context.Context) error {
 			err := s.initializeManagementToken("Initial Management Token", initialManagement)
 			if err != nil {
 				return fmt.Errorf("failed to initialize initial management token: %w", err)
-			}
-		}
-
-		// Check for configured management token from HCP. It MUST NOT override the user-provided initial management token.
-		if hcpManagement := s.config.Cloud.ManagementToken; len(hcpManagement) > 0 {
-			err := s.initializeManagementToken("HCP Management Token", hcpManagement)
-			if err != nil {
-				return fmt.Errorf("failed to initialize HCP management token: %w", err)
 			}
 		}
 

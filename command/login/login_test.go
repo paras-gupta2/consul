@@ -1,4 +1,4 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2024, 2026
 // SPDX-License-Identifier: BUSL-1.1
 
 package login
@@ -654,6 +654,7 @@ func TestLoginCommand_aws_iam(t *testing.T) {
 				"-method=iam-test",
 				"-token-sink-file", tokenSinkFile,
 				"-aws-sts-endpoint", fakeAws.URL + "/sts",
+				"-aws-iam-endpoint", fakeAws.URL + "/iam",
 				"-aws-region", "fake-region",
 				"-aws-access-key-id", "fake-key-id",
 				"-aws-secret-access-key", "fake-secret-key",

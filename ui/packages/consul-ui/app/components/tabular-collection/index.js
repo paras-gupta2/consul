@@ -1,18 +1,17 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
 import { inject as service } from '@ember/service';
-import { computed, get, set } from '@ember/object';
+import { computed, set } from '@ember/object';
 import CollectionComponent from 'ember-collection/components/ember-collection';
 import needsRevalidate from 'ember-collection/utils/needs-revalidate';
 import Grid from 'ember-collection/layouts/grid';
-import Slotted from 'block-slots';
 
 const formatItemStyle = Grid.prototype.formatItemStyle;
 
-export default CollectionComponent.extend(Slotted, {
+export default CollectionComponent.extend({
   tagName: '',
   dom: service('dom'),
   width: 1150,
@@ -40,13 +39,13 @@ export default CollectionComponent.extend(Slotted, {
     this.actions.resize.apply(this, [{ target: this.dom.viewport() }]);
   },
 
-  style: computed('rowHeight', '_items', 'maxRows', 'maxHeight', {
+  style: computed('rowHeight', '_items', 'maxRows', 'maxHeight', 'rows', {
     get() {
       const maxRows = this.rows;
       let height = this.maxHeight;
 
       if (maxRows) {
-        let rows = Math.max(3, get(this._items || [], 'length'));
+        let rows = Math.max(3, (this._items || []).length);
         rows = Math.min(maxRows, rows);
         height = this.rowHeight * rows + 29;
       }
@@ -59,11 +58,6 @@ export default CollectionComponent.extend(Slotted, {
     },
   }),
 
-  willRender: function () {
-    this._super(...arguments);
-    set(this, 'hasCaption', this._isRegistered('caption'));
-    set(this, 'hasActions', this._isRegistered('actions'));
-  },
   // `ember-collection` bug workaround
   // https://github.com/emberjs/ember-collection/issues/138
   _needsRevalidate: function () {

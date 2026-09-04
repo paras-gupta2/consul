@@ -1,5 +1,5 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
@@ -78,8 +78,15 @@ export default class NspaceSerializer extends Serializer {
   }
 
   respondForUpdateRecord(respond, serialized, data) {
-    return respond((headers, body) => {
-      return normalizeACLs(body);
-    });
+    return super.respondForUpdateRecord(
+      (cb) =>
+        respond((headers, body) => {
+          body.Datacenter = serialized.dc;
+          body.Namespace = '*';
+          return cb(headers, normalizeACLs(body));
+        }),
+      serialized,
+      data
+    );
   }
 }

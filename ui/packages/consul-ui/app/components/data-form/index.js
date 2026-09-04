@@ -1,15 +1,14 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
 import Component from '@ember/component';
 import { inject as service } from '@ember/service';
-import { set, get } from '@ember/object';
-import Slotted from 'block-slots';
+import { set } from '@ember/object';
 import { isChangeset } from 'validated-changeset';
 
-export default Component.extend(Slotted, {
+export default Component.extend({
   tagName: '',
   dom: service('dom'),
   builder: service('form'),
@@ -33,10 +32,6 @@ export default Component.extend(Slotted, {
       // this lets us load view only data that doesn't have a form
     }
   },
-  willRender: function () {
-    this._super(...arguments);
-    set(this, 'hasError', this._isRegistered('error'));
-  },
   actions: {
     setData: function (data) {
       let changeset = data;
@@ -46,7 +41,7 @@ export default Component.extend(Slotted, {
       }
       // mark as creating
       // and autofill the new record if required
-      if (get(data, 'isNew')) {
+      if (data?.isNew) {
         set(this, 'create', true);
         changeset = Object.entries(this.autofill || {}).reduce(function (prev, [key, value]) {
           set(prev, key, value);

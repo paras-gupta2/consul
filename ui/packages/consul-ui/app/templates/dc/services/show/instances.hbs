@@ -34,7 +34,8 @@ as |route|>
   )
 
   route.model.items
-  route.model.proxies.firstObject
+
+  (get route.model.proxies "firstObject")
 
 as |sort filters items proxyMeta|}}
     {{#if (gt items.length 0) }}
@@ -60,7 +61,7 @@ as |sort filters items proxyMeta|}}
             peer=route.params.peer
           )
         }}
-        @onchange={{action (mut this.proxies) value="data"}}
+        @onchange={{this.setProxies}}
       />
     {{/if}}
     {{! Service > Service Instance view doesn't require filtering of proxies }}
@@ -80,12 +81,12 @@ as |sort filters items proxyMeta|}}
       </collection.Collection>
       <collection.Empty>
         <EmptyState>
-          <BlockSlot @name="body">
+          <:body>
             {{t "routes.dc.services.show.instances.empty"
               items=items.length
               htmlSafe=true
             }}
-          </BlockSlot>
+          </:body>
         </EmptyState>
       </collection.Empty>
     </DataCollection>

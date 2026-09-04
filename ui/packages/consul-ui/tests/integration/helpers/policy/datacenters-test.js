@@ -1,5 +1,5 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
@@ -15,8 +15,8 @@ module('Integration | Helper | policy/datacenters', function (hooks) {
   test('it renders', async function (assert) {
     this.set('inputValue', {});
 
-    await render(hbs`{{policy/datacenters inputValue}}`);
+    await render(hbs`{{policy/datacenters this.inputValue}}`);
 
-    assert.equal(this.element.textContent.trim(), 'All');
+    assert.strictEqual(this.element.textContent.trim(), 'All');
   });
 });

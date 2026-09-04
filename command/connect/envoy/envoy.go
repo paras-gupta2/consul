@@ -1,4 +1,4 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2024, 2026
 // SPDX-License-Identifier: BUSL-1.1
 
 package envoy
@@ -528,11 +528,7 @@ func (c *cmd) proxyRegistration(svcForSidecar *api.AgentService) (*api.AgentServ
 		// fallback to localhost as the gateway has to reside in the same network namespace
 		// as the agent
 		tcpCheckAddr = "127.0.0.1"
-		ds, err := netutil.IsDualStack(nil, false)
-		if err == nil {
-			return nil, err
-		}
-		if ds {
+		if c.useIPv6loopback {
 			tcpCheckAddr = "::1"
 		}
 	}
@@ -1088,9 +1084,9 @@ func checkEnvoyVersionCompatibility(envoyVersion string, unsupportedList []strin
 	if len(unsupportedList) > 0 {
 		for i, s := range unsupportedList {
 			if i == 0 {
-				cs.WriteString(fmt.Sprintf("!= %s", s))
+				fmt.Fprintf(&cs, "!= %s", s)
 			} else {
-				cs.WriteString(fmt.Sprintf(", != %s", s))
+				fmt.Fprintf(&cs, ", != %s", s)
 			}
 		}
 
@@ -1118,7 +1114,7 @@ func checkEnvoyVersionCompatibility(envoyVersion string, unsupportedList []strin
 	maxSupported := fmt.Sprintf("%s.%d", splitS[0], minor)
 
 	cs.Reset()
-	cs.WriteString(fmt.Sprintf(">= %s, < %s", xdscommon.GetMinEnvoyMajorVersion(), maxSupported))
+	fmt.Fprintf(&cs, ">= %s, < %s", xdscommon.GetMinEnvoyMajorVersion(), maxSupported)
 	constraints, err := version.NewConstraint(cs.String())
 	if err != nil {
 		return envoyCompat{}, err

@@ -1,5 +1,5 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
@@ -32,8 +32,27 @@ export default class EditController extends Controller {
     );
   }
 
+  // Forwarders replacing route-action usage
   @action
-  delete(item) {
+  onCreate(item, event) {
+    event?.preventDefault();
+    this.target.send('create', item, event);
+  }
+
+  @action
+  onUpdate(item, event) {
+    event?.preventDefault();
+    this.target.send('update', item, event);
+  }
+
+  @action
+  onCancel(item, event) {
+    event?.preventDefault();
+    this.target.send('cancel', item, event);
+  }
+
+  @action
+  onDelete(item) {
     this.target.send('delete', item);
   }
 }

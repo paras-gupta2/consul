@@ -1,4 +1,4 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2024, 2026
 // SPDX-License-Identifier: BUSL-1.1
 
 package agent
@@ -8,8 +8,7 @@ import (
 	"strings"
 	"time"
 
-	discoverhcp "github.com/hashicorp/consul/agent/hcp/discover"
-	discover "github.com/hashicorp/go-discover"
+	"github.com/hashicorp/go-discover"
 	discoverk8s "github.com/hashicorp/go-discover/provider/k8s"
 	"github.com/hashicorp/go-hclog"
 
@@ -116,7 +115,6 @@ func newDiscover() (*discover.Discover, error) {
 		providers[k] = v
 	}
 	providers["k8s"] = &discoverk8s.Provider{}
-	providers["hcp"] = &discoverhcp.Provider{}
 
 	return discover.New(
 		discover.WithUserAgent(lib.UserAgent()),

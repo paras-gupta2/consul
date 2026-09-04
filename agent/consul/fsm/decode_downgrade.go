@@ -1,4 +1,4 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2024, 2026
 // SPDX-License-Identifier: BUSL-1.1
 
 package fsm
@@ -593,6 +593,8 @@ func MakeShadowConfigEntry(kind, name string) (structs.ConfigEntry, error) {
 	switch kind {
 	case structs.RateLimitIPConfig:
 		return nil, ErrDroppingTenantedReq
+	case structs.RateLimit:
+		return &ShadowGlobalRateLimitConfigEntry{GlobalRateLimitConfigEntry: &structs.GlobalRateLimitConfigEntry{Name: name}}, nil
 	case structs.ServiceDefaults:
 		return &ShadowServiceConfigEntry{ServiceConfigEntry: &structs.ServiceConfigEntry{Name: name}}, nil
 	case structs.ProxyDefaults:
@@ -754,6 +756,13 @@ func (s ShadowServiceRouterConfigEntry) CheckEnt() error {
 		return err
 	}
 	for _, route := range s.Routes {
+		// Destination is optional on a service-router route; a nil Destination
+		// carries no namespace/partition and therefore cannot be enterprise
+		// tenanted data. Guard against a nil dereference here (matches the nil
+		// check used during discovery-chain normalization).
+		if route.Destination == nil {
+			continue
+		}
 		if IsEnterpriseData(route.Destination.Namespace, route.Destination.Partition) {
 			return errIncompatibleTenantedData
 		}
@@ -1019,4 +1028,13 @@ type ShadowJWTProviderConfigEntry struct {
 
 func (s ShadowJWTProviderConfigEntry) GetRealConfigEntry() structs.ConfigEntry {
 	return s.JWTProviderConfigEntry
+}
+
+type ShadowGlobalRateLimitConfigEntry struct {
+	ShadowBase
+	*structs.GlobalRateLimitConfigEntry
+}
+
+func (s ShadowGlobalRateLimitConfigEntry) GetRealConfigEntry() structs.ConfigEntry {
+	return s.GlobalRateLimitConfigEntry
 }

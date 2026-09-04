@@ -1,4 +1,4 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2024, 2026
 // SPDX-License-Identifier: BUSL-1.1
 
 package structs
@@ -28,6 +28,9 @@ func TestNormalizeGenerateHash(t *testing.T) {
 	for _, cType := range AllConfigEntryKinds {
 		//this is an enterprise only config entry
 		if cType == RateLimitIPConfig {
+			continue
+		}
+		if cType == RateLimit {
 			continue
 		}
 		entry, err := MakeConfigEntry(cType, "global")

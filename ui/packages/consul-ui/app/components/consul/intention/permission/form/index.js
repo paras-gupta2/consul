@@ -1,5 +1,5 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
@@ -52,10 +52,15 @@ export default Component.extend({
     }
     return changeset;
   }),
-
-  pathType: computed('changeset._changes.HTTP.PathType', 'pathTypes.firstObject', function () {
-    return this.changeset.HTTP.PathType || this.pathTypes.firstObject;
-  }),
+  // eslint-disable-next-line ember/require-computed-macros
+  pathType: computed(
+    'changeset._changes.HTTP.PathType',
+    'pathTypes.firstObject',
+    'changeset.HTTP.PathType',
+    function () {
+      return this.changeset.HTTP.PathType || this.pathTypes.firstObject;
+    }
+  ),
   noPathType: equal('pathType', 'NoPath'),
   shouldShowPathField: not('noPathType'),
 
@@ -63,6 +68,7 @@ export default Component.extend({
   shouldShowMethods: not('allMethods'),
 
   didReceiveAttrs: function () {
+    this._super(...arguments);
     if (!get(this, 'item.HTTP.Methods.length')) {
       set(this, 'allMethods', true);
     }

@@ -14,15 +14,15 @@ The keys can be configured to be either, visible, invisible, or with an icon.
 - **Invisible Title Configuration:** Don't add a `class` attribute at all, i.e. by default
   the title is not shown.
 
-If you are providing an icon, you should also use the `{{tooltip}}` modifier
-to provide a textual tooltip for the icon. Using the `{{tooltip}}` modifier
+If you are providing an icon, you should also use the `{{hds-tooltip}}` modifier
+to provide a textual tooltip for the icon. Using the `{{hds-tooltip}}` modifier
 with no arguments will make it use the text/DOM content of the DOM element it
 is attached to, see below for a full usage example.
 
 `<ConsulCopyButton />` components are commonly added to the value, and can be added
 to the left or right of the value.
 
-```hbs preview-template
+```hbs
 <figure>
   <figcaption>
     All KVs can be specified in a single list
@@ -35,7 +35,7 @@ to the left or right of the value.
     </dd>
 {{#if true}}
     <dt
-      {{tooltip}}
+      {{hds-tooltip}}
       class="lock-delay"
     >
       Lock Delay
@@ -43,7 +43,7 @@ to the left or right of the value.
     <dd>10ms</dd>
 {{/if}}
     <dt
-      {{tooltip}}
+      {{hds-tooltip}}
       class="ttl"
     >
       TTL
@@ -81,7 +81,7 @@ to the left or right of the value.
     <dd>service-0</dd>
   </dl><dl>
     <dt
-      {{tooltip}}
+      {{hds-tooltip}}
       class="lock-delay"
     >
       Lock Delay
@@ -89,7 +89,7 @@ to the left or right of the value.
     <dd>10ms</dd>
   </dl><dl>
     <dt
-      {{tooltip}}
+      {{hds-tooltip}}
       class="ttl"
     >
       TTL
@@ -133,7 +133,7 @@ to the left or right of the value.
   </dl>
   <dl>
     <dt
-      {{tooltip}}
+      {{hds-tooltip}}
       class="lock-delay"
     >
       Lock Delay
@@ -141,7 +141,7 @@ to the left or right of the value.
     <dd>10ms</dd>
   </dl><dl>
     <dt
-      {{tooltip}}
+      {{hds-tooltip}}
       class="ttl"
     >
       TTL
@@ -176,7 +176,7 @@ When using as individual `dl` lists be aware of whitespace between `dl`s. There 
 
 Depending on your exact usecase one of the above options may be more suited than others.
 
-```hbs preview-template
+```hbs
 <figure>
   <figcaption>
     Conditionally showing multiple key/values sometimes means that you insert an empty `dl` into the DOM

@@ -252,7 +252,12 @@
               },
               "route": {
                 "cluster": "prefix-rewrite-1.default.dc1.internal.11111111-2222-3333-4444-555555555555.consul",
-                "prefixRewrite": "/"
+                "regexRewrite": {
+                  "pattern": {
+                    "regex": "^/prefix(/?)(.*)"
+                  },
+                  "substitution": "/\\2"
+                }
               }
             },
             {

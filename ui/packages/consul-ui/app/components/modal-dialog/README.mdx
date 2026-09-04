@@ -6,7 +6,7 @@ class: ember
 Consul UIs modal component is a thin wrapper around the excellent `a11y-dialog`. The
 most common usage will be something like the below:
 
-```hbs preview-template
+```hbs
 <ModalDialog
   @onclose={{noop}}
   @onopen={{noop}}
@@ -18,23 +18,23 @@ as |modal|>
   <!-- Save a reference to the modal component so we can call its methods -->
   {{did-insert (set this 'modal' modal)}}
 
-  <BlockSlot @name="header">
+  <:header>
     <h2>
       Modal Header
     </h2>
-  </BlockSlot>
-  <BlockSlot @name="body">
+  </:header>
+  <:body>
     <p>
       Modal body
     </p>
-  </BlockSlot>
-  <BlockSlot @name="actions">
+  </:body>
+  <:actions>
     <button type="button"
       {{on "click" modal.close}}
     >
       Close modal
     </button>
-  </BlockSlot>
+  </:actions>
 </ModalDialog>
 
 <button

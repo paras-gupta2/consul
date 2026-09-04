@@ -1,5 +1,5 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
@@ -12,8 +12,6 @@ import { HEADERS_SYMBOL as META } from 'consul-ui/utils/http/consul';
 module('Integration | Serializer | partition', function (hooks) {
   setupTest(hooks);
   test('respondForQuery returns the correct data for list endpoint', function (assert) {
-    assert.expect(1);
-
     const serializer = this.owner.lookup('serializer:partition');
     const dc = 'dc-1';
     const request = {

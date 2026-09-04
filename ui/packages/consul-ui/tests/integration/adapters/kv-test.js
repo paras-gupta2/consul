@@ -1,5 +1,5 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
@@ -30,7 +30,7 @@ module('Integration | Adapter | kv', function (hooks) {
         ns: nspace,
       });
       actual = actual();
-      assert.equal(`${actual.method} ${actual.url}`, expected);
+      assert.strictEqual(`${actual.method} ${actual.url}`, expected);
     });
     test(`requestForQueryRecord returns the correct url/method when nspace is ${nspace}`, async function (assert) {
       const adapter = this.owner.lookup('adapter:kv');
@@ -47,7 +47,7 @@ module('Integration | Adapter | kv', function (hooks) {
         ns: nspace,
       });
       actual = actual();
-      assert.equal(`${actual.method} ${actual.url}`, expected);
+      assert.strictEqual(`${actual.method} ${actual.url}`, expected);
     });
     test(`requestForCreateRecord returns the correct url/method when nspace is ${nspace}`, function (assert) {
       const adapter = this.owner.lookup('adapter:kv');
@@ -69,7 +69,7 @@ module('Integration | Adapter | kv', function (hooks) {
         )
         .split('\n')
         .shift();
-      assert.equal(actual, expected);
+      assert.strictEqual(actual, expected);
     });
     test(`requestForUpdateRecord returns the correct url/method when nspace is ${nspace}`, function (assert) {
       const adapter = this.owner.lookup('adapter:kv');
@@ -93,7 +93,7 @@ module('Integration | Adapter | kv', function (hooks) {
         )
         .split('\n')
         .shift();
-      assert.equal(actual, expected);
+      assert.strictEqual(actual, expected);
     });
     test(`requestForDeleteRecord returns the correct url/method when the nspace is ${nspace}`, function (assert) {
       const adapter = this.owner.lookup('adapter:kv');
@@ -114,7 +114,7 @@ module('Integration | Adapter | kv', function (hooks) {
         )
         .split('\n')
         .shift();
-      assert.equal(actual, expected);
+      assert.strictEqual(actual, expected);
     });
     test(`requestForDeleteRecord returns the correct url/method for folders when nspace is ${nspace}`, function (assert) {
       const adapter = this.owner.lookup('adapter:kv');
@@ -136,7 +136,7 @@ module('Integration | Adapter | kv', function (hooks) {
         )
         .split('\n')
         .shift();
-      assert.equal(actual, expected);
+      assert.strictEqual(actual, expected);
     });
   });
   test("requestForQuery throws if you don't specify an id", function (assert) {

@@ -1,5 +1,5 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
@@ -29,7 +29,6 @@ export default function ({
   helpers = {},
   api = {},
   Inflector = {},
-  $ = {},
 }) {
   const pluralize = function (str) {
     return Inflector.inflector.pluralize(str);
@@ -68,9 +67,9 @@ export default function ({
         run(resolve, reject, retry).then(function () {
           if (!resolved) {
             setTimeout(function () {
-              if (++count >= 50) {
+              if (++count >= 100) {
                 assert.ok(false, message);
-                reject();
+                r();
                 return;
               }
               tick();
@@ -123,7 +122,7 @@ export default function ({
   debug(library, assert, currentURL);
   assertHttp(library, assert, lastNthRequest);
   assertModel(library, assert, utils.find, utils.getCurrentPage, pauseUntil, pluralize);
-  assertPage(library, assert, utils.find, utils.getCurrentPage, $);
+  assertPage(library, assert, utils.find, utils.getCurrentPage);
   assertDom(library, assert, pauseUntil, helpers.find, currentURL, clipboard);
   assertForm(library, assert, utils.find, utils.getCurrentPage);
 

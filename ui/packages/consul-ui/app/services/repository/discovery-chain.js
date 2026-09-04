@@ -1,5 +1,5 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
@@ -22,8 +22,8 @@ export default class DiscoveryChainService extends RepositoryService {
   findBySlug(params, configuration = {}) {
     // peekAll and find is fine here as datacenter count should be relatively
     // low, and DCs are the top bucket (when talking dc's partitions, nspaces)
-    const datacenter = this.dcs.peekAll().findBy('Name', params.dc);
-    if (typeof datacenter !== 'undefined' && !get(datacenter, 'MeshEnabled')) {
+    const datacenter = this.dcs.peekAll().find((dc) => dc.Name === params.dc);
+    if (typeof datacenter !== 'undefined' && !datacenter.MeshEnabled) {
       return Promise.resolve();
     }
     return super.findBySlug(...arguments).catch((e) => {

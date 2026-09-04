@@ -1,5 +1,5 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
@@ -19,7 +19,7 @@ module('Integration | Adapter | nspace', function (hooks) {
     const actual = adapter.requestForQuery(request, {
       dc: dc,
     });
-    assert.equal(`${actual.method} ${actual.url}`, expected);
+    assert.strictEqual(`${actual.method} ${actual.url}`, expected);
   });
   test('requestForQueryRecord returns the correct url/method', function (assert) {
     const adapter = this.owner.lookup('adapter:nspace');
@@ -30,7 +30,7 @@ module('Integration | Adapter | nspace', function (hooks) {
       id: id,
       dc: dc,
     });
-    assert.equal(actual, expected);
+    assert.strictEqual(actual, expected);
   });
   test("requestForQueryRecord throws if you don't specify an id", function (assert) {
     const adapter = this.owner.lookup('adapter:nspace');

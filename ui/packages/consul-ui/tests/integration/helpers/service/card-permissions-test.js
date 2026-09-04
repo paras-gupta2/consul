@@ -1,5 +1,5 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
@@ -20,8 +20,8 @@ module('Integration | Helper | service/card-permissions', function (hooks) {
       },
     });
 
-    await render(hbs`{{service/card-permissions inputValue}}`);
+    await render(hbs`{{service/card-permissions this.inputValue}}`);
 
-    assert.equal(this.element.textContent.trim(), 'allow');
+    assert.strictEqual(this.element.textContent.trim(), 'allow');
   });
 });

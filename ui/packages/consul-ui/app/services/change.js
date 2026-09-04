@@ -1,5 +1,5 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
@@ -22,8 +22,8 @@ export default class ChangeService extends Service {
   @service('schema')
   schema;
 
-  init() {
-    super.init(...arguments);
+  constructor(...args) {
+    super(...args);
     this._validators = new Map();
   }
 

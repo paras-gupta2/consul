@@ -1,4 +1,4 @@
-# Copyright (c) HashiCorp, Inc.
+# Copyright IBM Corp. 2024, 2026
 # SPDX-License-Identifier: BUSL-1.1
 
 acl_agent_master_token = "furuQD0b"
@@ -304,6 +304,7 @@ leave_on_terminate = true
 license_path = "/path/to/license.lic"
 limits {
     http_max_conns_per_client = 100
+    grpc_max_conns_per_client = 2953
     https_handshake_timeout = "2391ms"
     rpc_handshake_timeout = "1932ms"
     rpc_client_timeout = "62s"
@@ -741,6 +742,13 @@ telemetry {
     statsd_address = "drce87cy"
     statsite_address = "HpFwKB8R"
     disable_per_tenancy_usage_metrics = true
+    certificate {
+        enabled = true
+        cache_duration = "5m"
+        critical_threshold_days = 7
+        warning_threshold_days = 30
+        info_threshold_days = 90
+    }
 }
 tls {
     defaults {

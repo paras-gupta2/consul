@@ -1,4 +1,4 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2024, 2026
 // SPDX-License-Identifier: BUSL-1.1
 
 package cachetype
@@ -20,7 +20,7 @@ type CatalogDatacenters struct {
 	RPC RPC
 }
 
-func (c *CatalogDatacenters) Fetch(opts cache.FetchOptions, req cache.Request) (cache.FetchResult, error) {
+func (c *CatalogDatacenters) Fetch(ctx context.Context, opts cache.FetchOptions, req cache.Request) (cache.FetchResult, error) {
 	var result cache.FetchResult
 
 	// The request should be a CatalogDatacentersRequest.
@@ -42,7 +42,7 @@ func (c *CatalogDatacenters) Fetch(opts cache.FetchOptions, req cache.Request) (
 
 	// Fetch
 	var reply []string
-	if err := c.RPC.RPC(context.Background(), "Catalog.ListDatacenters", reqReal, &reply); err != nil {
+	if err := c.RPC.RPC(ctx, "Catalog.ListDatacenters", reqReal, &reply); err != nil {
 		return result, err
 	}
 

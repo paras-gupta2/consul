@@ -1,5 +1,5 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
@@ -55,6 +55,7 @@ export default Component.extend({
     this._routelisteners = this.dom.listeners();
   },
   didInsertElement: function () {
+    this._super(...arguments);
     // TODO: How do you detect whether the children have changed?
     // For now we know that these elements exist and never change
     this.$menu = this.dom.element(`#${COMPONENT_ID}menu-${this.guid}`);

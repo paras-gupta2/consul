@@ -1,12 +1,10 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
 import Mixin from '@ember/object/mixin';
 import { get } from '@ember/object';
-
-import minimizeModel from 'consul-ui/utils/minimizeModel';
 
 const normalizeIdentities = function (items, template, name, dc) {
   return (items || []).map(function (item) {
@@ -33,22 +31,35 @@ const normalizePolicies = function (items) {
 const serializeIdentities = function (items, template, name, dc) {
   return items
     .filter(function (item) {
-      return get(item, 'template') === template;
+      return item.template === template;
     })
     .map(function (item) {
       const identity = {
-        [name]: get(item, 'Name'),
+        [name]: item.Name,
       };
       if (typeof get(item, dc) !== 'undefined') {
-        identity[dc] = get(item, dc);
+        identity[dc] = item[dc];
       }
       return identity;
     });
 };
 const serializePolicies = function (items) {
-  return items.filter(function (item) {
-    return get(item, 'template') === '';
-  });
+  return items
+    .filter(function (item) {
+      const template = get(item, 'template');
+      return template === '' || typeof template === 'undefined';
+    })
+    .map(function (item) {
+      // Extract ID and Name - use get() for both to handle models and objects
+      return {
+        ID: get(item, 'ID'),
+        Name: get(item, 'Name'),
+      };
+    })
+    .filter(function (item) {
+      // Only include items that have both ID and Name
+      return item.ID && item.Name;
+    });
 };
 
 export default Mixin.create({
@@ -98,19 +109,26 @@ export default Mixin.create({
   },
   serialize: function (snapshot, options) {
     const data = this._super(...arguments);
+
+    let policies = [];
+    if (snapshot && snapshot.record && snapshot.record.Policies) {
+      policies = snapshot.record.Policies.toArray
+        ? snapshot.record.Policies.toArray()
+        : snapshot.record.Policies;
+    }
+
+    if ((!policies || policies.length === 0) && data.Policies && Array.isArray(data.Policies)) {
+      policies = data.Policies;
+    }
+
     data.ServiceIdentities = serializeIdentities(
-      data.Policies,
+      policies,
       'service-identity',
       'ServiceName',
       'Datacenters'
     );
-    data.NodeIdentities = serializeIdentities(
-      data.Policies,
-      'node-identity',
-      'NodeName',
-      'Datacenter'
-    );
-    data.Policies = minimizeModel(serializePolicies(data.Policies));
+    data.NodeIdentities = serializeIdentities(policies, 'node-identity', 'NodeName', 'Datacenter');
+    data.Policies = serializePolicies(policies);
     return data;
   },
 });

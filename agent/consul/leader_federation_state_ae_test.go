@@ -1,4 +1,4 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2024, 2026
 // SPDX-License-Identifier: BUSL-1.1
 
 package consul
@@ -350,6 +350,20 @@ func TestLeader_FederationStateAntiEntropyPruning(t *testing.T) {
 		require.Len(r, mine, 1)
 		require.Equal(r, "dc1", mine[0].Datacenter)
 	})
+}
+
+func TestWaitForDurationOrCancel_Waits(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	d := 25 * time.Millisecond
+
+	start := time.Now()
+	err := waitForDurationOrCancel(ctx, d)
+	elapsed := time.Since(start)
+
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, elapsed, d-5*time.Millisecond)
 }
 
 func TestLeader_FederationStateAntiEntropyPruning_ACLDeny(t *testing.T) {

@@ -1,4 +1,4 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2024, 2026
 // SPDX-License-Identifier: BUSL-1.1
 
 package consul
@@ -15,11 +15,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/armon/go-metrics"
-	"github.com/armon/go-metrics/prometheus"
 	"github.com/hashicorp/go-connlimit"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-memdb"
+	"github.com/hashicorp/go-metrics"
+	"github.com/hashicorp/go-metrics/prometheus"
 	"github.com/hashicorp/go-raftchunking"
 	"github.com/hashicorp/memberlist"
 	"github.com/hashicorp/raft"
@@ -1154,7 +1154,7 @@ func maskResultsFilteredByACLs(token string, m blockingQueryResponseMeta, s *Ser
 
 	identity, err := s.resolveIdentityFromToken(token)
 	if err != nil {
-		s.rpcLogger().Error("Failed to resolve identity from token", "err", err)
+		s.rpcLogger().Debug("Failed to resolve identity from token", "token", token, "err", err)
 		m.SetResultsFilteredByACLs(false)
 		return
 	}

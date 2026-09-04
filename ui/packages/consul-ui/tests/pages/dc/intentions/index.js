@@ -1,13 +1,12 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
 export default function (visitable, creatable, clickable, intentions, popoverSelect) {
-  return {
+  return creatable({
     visit: visitable('/:dc/intentions'),
     intentionList: intentions(),
     sort: popoverSelect('[data-test-sort-control]'),
-    ...creatable({}),
-  };
+  });
 }

@@ -1,5 +1,5 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
@@ -21,18 +21,18 @@ module('Integration | Component | state', function (hooks) {
       },
     });
     await render(hbs`
-      <State @state={{state}} @matches="idle">
+      <State @state={{this.state}} @matches="idle">
         Currently Idle
       </State>
     `);
 
-    assert.equal(this.element.textContent.trim(), 'Currently Idle');
+    assert.strictEqual(this.element.textContent.trim(), 'Currently Idle');
     await render(hbs`
-      <State @state={{state}} @matches="loading">
+      <State @state={{this.state}} @matches="loading">
         Currently Idle
       </State>
     `);
 
-    assert.equal(this.element.textContent.trim(), '');
+    assert.strictEqual(this.element.textContent.trim(), '');
   });
 });

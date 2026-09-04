@@ -1,11 +1,10 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2024, 2026
 // SPDX-License-Identifier: BUSL-1.1
 
 package ca
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/hashicorp/consul/agent/structs"
@@ -30,6 +29,7 @@ func NewK8sAuthClient(authMethod *structs.VaultAuthMethod) (*VaultAuthClient, er
 	return authClient, nil
 }
 
+// K8sLoginDataGen generates the login data for the Kubernetes auth method
 func K8sLoginDataGen(authMethod *structs.VaultAuthMethod) (map[string]any, error) {
 	params := authMethod.Params
 	role := params["role"].(string)
@@ -39,7 +39,28 @@ func K8sLoginDataGen(authMethod *structs.VaultAuthMethod) (map[string]any, error
 	if !ok || strings.TrimSpace(tokenPath) == "" {
 		tokenPath = defaultK8SServiceAccountTokenPath
 	}
-	rawToken, err := os.ReadFile(tokenPath)
+
+	// Define allowed base directories for Kubernetes service account tokens
+	allowedDirs := []string{
+		"/var/run/secrets/kubernetes.io/serviceaccount",
+		"/run/secrets/kubernetes.io/serviceaccount",
+	}
+
+	if tokenDirs, ok := params["TokenDirs"].(string); ok {
+
+		var dirs []string
+		for _, d := range strings.Split(tokenDirs, ",") {
+			if d = strings.TrimSpace(d); d != "" {
+				dirs = append(dirs, d)
+			}
+		}
+		if len(dirs) > 0 {
+			allowedDirs = dirs
+		}
+	}
+
+	// Securely read the JWT file using os.OpenRoot to prevent path traversal attacks
+	rawToken, err := readVaultCredentialFileSecurely(tokenPath, allowedDirs)
 	if err != nil {
 		return nil, err
 	}

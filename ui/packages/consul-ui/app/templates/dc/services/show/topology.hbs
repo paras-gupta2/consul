@@ -13,18 +13,18 @@ as |route|>
         nspace=route.params.nspace
         dc=route.params.dc
         name=route.params.name
-        kind=(or route.model.items.firstObject.Service.Kind '')
+        kind=(or (get route.model.items "firstObject.Service.Kind") '')
       )
-  }} as |loader|>
+  }}>
 
-    <BlockSlot @name="error">
+    <:error as |loader|>
       <AppError
         @error={{loader.error}}
         @login={{route.model.app.login.open}}
       />
-    </BlockSlot>
+    </:error>
 
-    <BlockSlot @name="loaded">
+    <:loaded as |loader|>
 {{#let
   route.params.nspace
   route.model.dc
@@ -153,32 +153,32 @@ as |nspace dc items topology|}}
       }}
     as |config|>
     {{#if config.data}}
-
+       {{! template-lint-disable no-array-prototype-extensions }}
       <TopologyMetrics
         @nspace={{nspace}}
         @dc={{dc}}
-        @service={{items.firstObject}}
+        @service={{get items "firstObject"}}
         @topology={{topology}}
 
         @metricsHref={{render-template config.data.dashboard_url_templates.service
           (hash
             Datacenter=dc.Name
             Service=(hash
-              Name=items.firstObject.Name
-              Namespace=(or items.firstObject.Namespace '')
-              Partition=(or items.firstObject.Partition '')
+              Name=(get items "firstObject.Name")
+              Namespace=(or (get items "firstObject.Namespace") '')
+              Partition=(or (get items "firstObject.Partition") '')
             )
           )
         }}
         @isRemoteDC={{not dc.Local}}
         @hasMetricsProvider={{gt config.data.metrics_provider.length 0}}
-        @oncreate={{route-action 'createIntention'}}
+        @oncreate={{this.createIntention}}
       />
 
     {{/if}}
     </DataSource>
   </div>
 {{/let}}
-    </BlockSlot>
+    </:loaded>
   </DataLoader>
 </Route>

@@ -1,5 +1,5 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
@@ -53,7 +53,7 @@ module('Unit | Component | consul/discovery-chain/get-splitters', function () {
         },
       ],
     };
-    assert.equal(actual.length, 1);
+    assert.strictEqual(actual.length, 1);
     assert.deepEqual(actual[0], expected);
   });
 });

@@ -1,4 +1,4 @@
-// Copyright (c) HashiCorp, Inc.
+// Copyright IBM Corp. 2024, 2026
 // SPDX-License-Identifier: BUSL-1.1
 
 /*
@@ -112,6 +112,9 @@ enum Topic {
 
   // FileSystemCertificate topic contains events for changes to file-system-certificates.
   FileSystemCertificate = 18;
+
+  // GlobalRateLimit topic contains events for changes to global rate limits.
+  GlobalRateLimit = 19;
 }
 
 message NamedSubject {

@@ -1,5 +1,5 @@
 /**
- * Copyright (c) HashiCorp, Inc.
+ * Copyright IBM Corp. 2024, 2026
  * SPDX-License-Identifier: BUSL-1.1
  */
 
@@ -32,8 +32,8 @@ export default class DataSourceService extends Service {
   @service('data-source/protocols/http') consul;
   @service('data-source/protocols/local-storage') settings;
 
-  init() {
-    super.init(...arguments);
+  constructor(...args) {
+    super(...args);
     cache = new Map();
     sources = new Map();
     usage = new MultiMap(Set);
