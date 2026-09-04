@@ -1,0 +1,27 @@
+# PLC Build Gate
+#
+# Minimal stand-in for this repo's real CRT build pipeline, added solely so
+# the CVE Scan workflow (.github/workflows/cve-scan.yml) has something to
+# chain off of via `workflow_run`, matching the real pipeline's "build must
+# pass before the security/prepare scan runs" sequencing. This deliberately
+# does NOT attempt to replicate the full build matrix, which depends on
+# private HashiCorp actions/secrets (e.g. hashicorp/actions-generate-metadata)
+# this fork does not have access to.
+name: PLC Build Gate
+
+on:
+  push:
+    branches:
+      - 'release/**'
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build gate
+        run: echo "PLC build gate: ok (commit ${GITHUB_SHA})"
