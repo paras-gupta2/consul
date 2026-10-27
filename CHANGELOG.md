@@ -1,3 +1,11 @@
+## 2.0.8 (October 27, 2026)
+
+IMPROVEMENTS:
+
+* security: Upgrade golang to 1.25.3. [[GH-22926](https://github.com/hashicorp/consul/issues/22926)]
+* ui: Fixes computed property override issues currently occurring and in some cases pre-emptively as this has been deprecated in ember v4 [[GH-22947](https://github.com/hashicorp/consul/issues/22947)]
+* ui: removes send action instances as part of https://deprecations.emberjs.com/id/ember-component-send-action/ [[GH-22938](https://github.com/hashicorp/consul/issues/22938)]
+
 ## 1.22.0-rc2+ent (October 15, 2025)
 
 SECURITY:
