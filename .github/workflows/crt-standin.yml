@@ -1,0 +1,237 @@
+# CRT stand-in — FOR TEST FORKS ONLY (never install in hashicorp/*).
+#
+# Installed by scripts/crt-standin/install.sh as .github/workflows/crt-standin.yml
+# in the paras-gupta2 copies of consul / consul-enterprise / consul-k8s /
+# consul-dataplane (whose copied build.yml is disabled, as it cannot run
+# outside hashicorp). It reproduces what scripts/cve_scan.sh watches upstream:
+#
+#   push → workflow "build" → `build` check run   (external_id crt:product=<repo>:stage=build)
+#        → `prepare` check run, in_progress → "Scan Binaries (1/1)" / "Scan Containers (1/1)"
+#          print security-scanner finding lines and fail → `prepare` completes with
+#          the CRT "| Job | Status | Logs | Action |" summary table.
+#
+# Changelog-only pushes build nothing (paths-ignore), like upstream.
+#
+# Control file .release/fake-cve-findings (missing/empty → clean), one per line:
+#   binary    GO-2026-6809 stdlib Go 1.26.9               finding in the binary scan
+#   container GO-2026-5932 golang.org/x/crypto Go 0.31.0  finding in the container scan
+#   fail      Sign Linux RPMs                             fail a non-scan prepare job
+#   build-fail                                            fail the build (no scan)
+#   prepare-seconds 900                                   scan duration override
+#   prepare-never                                         build passes, prepare never starts
+# Findings whose ID is in .release/security-scan.hcl (same block) are dropped,
+# as the real scanner's triage { suppress { vulnerabilities } } does.
+name: build
+
+on:
+  push:
+    branches: [main, "release/**"]
+    paths-ignore:
+      - ".changelog/**"
+      - "CHANGELOG.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  checks: write
+  actions: read
+
+env:
+  BUILD_SECONDS: ${{ vars.CRT_STANDIN_BUILD_SECONDS || '60' }}
+  PREPARE_SECONDS: ${{ vars.CRT_STANDIN_PREPARE_SECONDS || '120' }}
+  CONTROL_FILE: .release/fake-cve-findings
+  SCAN_CONFIG: .release/security-scan.hcl
+  PRODUCT: ${{ github.event.repository.name }}
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  build:
+    name: Build (CRT stand-in)
+    if: github.repository_owner != 'hashicorp'
+    runs-on: ubuntu-latest
+    outputs:
+      prepare-never: ${{ steps.ctl.outputs.prepare-never }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .release
+          sparse-checkout-cone-mode: false
+      - id: ctl
+        name: Read control file
+        run: |
+          f="${CONTROL_FILE}"
+          has() { [ -f "$f" ] && grep -qE "^[[:space:]]*$1([[:space:]]|$)" "$f"; }
+          if has build-fail; then echo "build-fail=true" >> "$GITHUB_OUTPUT"; fi
+          if has prepare-never; then echo "prepare-never=true" >> "$GITHUB_OUTPUT"; fi
+          [ -f "$f" ] && { echo "Control file:"; sed 's/^/  /' "$f"; } || echo "No ${f} — clean build."
+      - name: Register CRT build check (in_progress)
+        run: |
+          id=$(gh api -X POST "repos/${GITHUB_REPOSITORY}/check-runs" \
+            -f name=build -f head_sha="${GITHUB_SHA}" \
+            -f external_id="crt:product=${PRODUCT}:stage=build" \
+            -f status=in_progress -f started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -f details_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            -f 'output[title]=build' -f 'output[summary]=CRT stand-in build in progress' --jq .id)
+          echo "BUILD_CHECK_ID=${id}" >> "$GITHUB_ENV"
+      - name: Build
+        run: |
+          echo "Building ${PRODUCT} @ ${GITHUB_SHA} (stand-in: sleeping ${BUILD_SECONDS}s)"
+          sleep "${BUILD_SECONDS}"
+          if [ "${{ steps.ctl.outputs.build-fail }}" = "true" ]; then
+            echo "::error::build-fail requested by ${CONTROL_FILE}"
+            exit 1
+          fi
+      - name: Complete CRT build check
+        if: always() && env.BUILD_CHECK_ID != ''
+        run: |
+          c=success; [ "${{ job.status }}" = "success" ] || c=failure
+          gh api -X PATCH "repos/${GITHUB_REPOSITORY}/check-runs/${BUILD_CHECK_ID}" \
+            -f status=completed -f conclusion="${c}" -f completed_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -f 'output[title]=build' -f "output[summary]=CRT stand-in build ${c}" --silent
+
+  prepare:
+    name: Prepare (CRT stand-in)
+    needs: build
+    if: needs.build.outputs.prepare-never != 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      check-id: ${{ steps.check.outputs.id }}
+      binary: ${{ steps.plan.outputs.binary }}
+      container: ${{ steps.plan.outputs.container }}
+      fails: ${{ steps.plan.outputs.fails }}
+      seconds: ${{ steps.plan.outputs.seconds }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .release
+          sparse-checkout-cone-mode: false
+      - id: plan
+        name: Plan findings (honouring security-scan.hcl suppressions)
+        run: |
+          # block<TAB>id for every triage { suppress { vulnerabilities = [...] } }
+          supp=$( [ -f "${SCAN_CONFIG}" ] && awk '
+            { line=$0; sub(/\/\/.*$/,"",line); sub(/#.*$/,"",line)
+              t=line; o=gsub(/\{/,"{",t); t=line; c=gsub(/\}/,"}",t)
+              if (d==0 && o>0) { split(line,w,/[ \t{]+/); b=(w[1]!=""?w[1]:w[2]) }
+              if (line ~ /vulnerabilities[ \t]*=[ \t]*\[/) { a=1; sub(/.*vulnerabilities[ \t]*=[ \t]*\[/,"",line) }
+              if (a) { r=line; while (match(r,/"[^"]*"/)) { print b "\t" substr(r,RSTART+1,RLENGTH-2); r=substr(r,RSTART+RLENGTH) }
+                       if (line ~ /\]/) a=0 }
+              d+=o-c }' "${SCAN_CONFIG}" || true)
+          echo "Suppressed in ${SCAN_CONFIG}:"; printf '%s\n' "${supp:-  (none)}"
+          : > binary.txt; : > container.txt; : > fails.txt; secs="${PREPARE_SECONDS}"
+          if [ -f "${CONTROL_FILE}" ]; then
+            while read -r kind rest; do
+              case "${kind}" in
+                binary|container)
+                  read -r id pkg eco ver <<<"${rest}"
+                  if printf '%s\n' "${supp}" | grep -qxF "${kind}"$'\t'"${id}"; then
+                    echo "drop ${kind} ${id} — suppressed"; continue
+                  fi
+                  echo "${id} ${pkg} ${eco} ${ver}" >> "${kind}.txt" ;;
+                fail) echo "${rest}" >> fails.txt ;;
+                prepare-seconds) secs="${rest%% *}" ;;
+              esac
+            done < <(grep -vE '^[[:space:]]*(#|$)' "${CONTROL_FILE}")
+          fi
+          for k in binary container fails; do
+            { echo "${k}<<EOF"; cat "${k}.txt"; echo "EOF"; } >> "$GITHUB_OUTPUT"
+            echo "${k}:"; sed 's/^/  /' "${k}.txt"
+          done
+          echo "seconds=${secs}" >> "$GITHUB_OUTPUT"
+      - id: check
+        name: Register CRT prepare check (in_progress)
+        run: |
+          id=$(gh api -X POST "repos/${GITHUB_REPOSITORY}/check-runs" \
+            -f name=prepare -f head_sha="${GITHUB_SHA}" \
+            -f external_id="crt:product=${PRODUCT}:stage=prepare" \
+            -f status=in_progress -f started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -f details_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            -f 'output[title]=prepare workflow jobs status checks' -f 'output[summary]=prepare in progress' --jq .id)
+          echo "id=${id}" >> "$GITHUB_OUTPUT"
+
+  scan:
+    name: ${{ matrix.job }}
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - job: Scan Binaries (1/1)
+            block: binary
+          - job: Scan Containers (1/1)
+            block: container
+    steps:
+      - name: Scan
+        env:
+          BINARY_FINDINGS: ${{ needs.prepare.outputs.binary }}
+          CONTAINER_FINDINGS: ${{ needs.prepare.outputs.container }}
+          SECONDS_TO_SCAN: ${{ needs.prepare.outputs.seconds }}
+          BLOCK: ${{ matrix.block }}
+        run: |
+          if [ "${BLOCK}" = binary ]; then FINDINGS="${BINARY_FINDINGS}"; else FINDINGS="${CONTAINER_FINDINGS}"; fi
+          sleep "${SECONDS_TO_SCAN}"
+          dir="to-scan.$(head -c3 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+          if [ "${BLOCK}" = binary ]; then target="${dir}/${PRODUCT}"; else target="${dir}/${PRODUCT}_default_linux_amd64.docker.tar"; fi
+          n=$(printf '%s\n' "${FINDINGS}" | grep -c . || true)
+          # Actions logs echo this script's source; keep the scanner phrases out
+          # of it so only the printed lines look like scanner output.
+          sc="Scanning"; rv="reported vulnerability"
+          echo
+          echo "${sc} ${target}"
+          echo "Scanned file:{path:\"${target}\"} in 6.3s - found ${n} result(s)"
+          [ "${n}" -gt 0 ] || exit 0
+          echo "  » OSV Scanner"
+          printf '%s\n' "${FINDINGS}" | while read -r id pkg eco ver; do
+            [ -n "${id}" ] || continue
+            echo "    ⚠︎ found OSV ${rv} ${pkg} in ${eco} ${id}@${ver}"
+            echo "        ${target}:1:1"
+          done
+          echo "::error::Security scanner found issue in: ${PRODUCT}"
+          exit 1
+
+  other:
+    name: ${{ matrix.job }}
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        job: [Verify License Files, Sign Linux RPMs]
+    steps:
+      - env:
+          FAILS: ${{ needs.prepare.outputs.fails }}
+          JOB: ${{ matrix.job }}
+        run: |
+          if printf '%s\n' "${FAILS}" | grep -qxF "${JOB}"; then
+            echo "::error::${JOB} failed (requested by ${CONTROL_FILE})"
+            exit 1
+          fi
+          echo "${JOB}: ok"
+
+  report:
+    name: Report prepare (CRT stand-in)
+    needs: [prepare, scan, other]
+    if: always() && needs.prepare.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          CHECK_ID: ${{ needs.prepare.outputs.check-id }}
+        run: |
+          jobs=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/attempts/${GITHUB_RUN_ATTEMPT}/jobs?per_page=100")
+          rows=$(jq -r '
+            [.jobs[] | select(.name | test("^(Scan |Verify License Files$|Sign Linux RPMs$)"))]
+            | sort_by(.name)[]
+            | (.conclusion // .status) as $c
+            | (if $c == "success" then ":white_check_mark:" elif $c == "skipped" then ":fast_forward:" else ":x:" end) as $i
+            | " | \(.name) | \($i) - \($c) | <html><body><a href=\(.html_url)>Logs</a></body></html> | "
+              + (if $c == "success" or $c == "skipped" then "-" else "failure: if it'"'"'s a vulnerability, please reach out to #team-prodsec" end) + " |"
+          ' <<<"${jobs}")
+          concl=success
+          jq -e '[.jobs[] | select(.name | test("^(Scan |Verify License Files$|Sign Linux RPMs$)")) | .conclusion] | any(. == "failure" or . == "cancelled" or . == "timed_out")' <<<"${jobs}" >/dev/null && concl=failure
+          summary=$(printf '| Job | Status | Logs | Action |\n| :---: | :---: | :---: | :---: |\n%s\n' "${rows}")
+          echo "${summary}"
+          gh api -X PATCH "repos/${GITHUB_REPOSITORY}/check-runs/${CHECK_ID}" \
+            -f status=completed -f conclusion="${concl}" -f completed_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -f 'output[title]=prepare workflow jobs status checks' -f "output[summary]=${summary}" --silent
+          echo "prepare → ${concl}"
