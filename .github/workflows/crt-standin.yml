@@ -174,14 +174,17 @@ jobs:
           dir="to-scan.$(head -c3 /dev/urandom | od -An -tx1 | tr -d ' \n')"
           if [ "${BLOCK}" = binary ]; then target="${dir}/${PRODUCT}"; else target="${dir}/${PRODUCT}_default_linux_amd64.docker.tar"; fi
           n=$(printf '%s\n' "${FINDINGS}" | grep -c . || true)
+          # Actions logs echo this script's source; keep the scanner phrases out
+          # of it so only the printed lines look like scanner output.
+          sc="Scanning"; rv="reported vulnerability"
           echo
-          echo "Scanning ${target}"
+          echo "${sc} ${target}"
           echo "Scanned file:{path:\"${target}\"} in 6.3s - found ${n} result(s)"
           [ "${n}" -gt 0 ] || exit 0
           echo "  » OSV Scanner"
           printf '%s\n' "${FINDINGS}" | while read -r id pkg eco ver; do
             [ -n "${id}" ] || continue
-            echo "    ⚠︎ found OSV reported vulnerability ${pkg} in ${eco} ${id}@${ver}"
+            echo "    ⚠︎ found OSV ${rv} ${pkg} in ${eco} ${id}@${ver}"
             echo "        ${target}:1:1"
           done
           echo "::error::Security scanner found issue in: ${PRODUCT}"
