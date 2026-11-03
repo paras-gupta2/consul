@@ -1,3 +1,9 @@
+## 9.9.0 (November 3, 2026)
+
+BUG FIXES:
+
+* plc: fake section for post-release write test [[GH-1](https://github.com/paras-gupta2/consul/pull/1)]
+
 ## 1.22.0-rc2+ent (October 15, 2025)
 
 SECURITY:
